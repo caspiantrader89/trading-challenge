@@ -367,7 +367,7 @@ function drawDragLine(type, price, y){
     const aIdx = activeOrders.findIndex(o=>o.i===lIdx);
     if(aIdx>=0 && sl && riskRaw){
       const prices = activeOrders.map(o=>o.price);
-      const weights = getLadderWeights(activeOrders.length, prices, activeOrders.map(o=>LADDER.orders[o.i]));
+      const weights = getLadderWeights(activeOrders.length, prices);
       const w = weights[aIdx]/100;
       const orderRisk = riskUsd * w;
       const slDist = Math.abs(price - sl);
@@ -984,36 +984,26 @@ function setLadderN(n){
   syncLadderLinesToChart();
 }
 
-function getLadderWeights(n, prices, orders){
-  // Preset di default: L1 ha il peso minore, sale verso l'ultimo
-  const PRESET_WEIGHTS = {
-    1: [100],
-    2: [35, 65],
-    3: [20, 35, 45],
-    4: [15, 20, 30, 35],
-  };
-
-  // Se ci sono customPct impostati dall'utente, usali (normalizzati)
-  if(orders && orders.length >= 1){
-    const hasCustom = orders.some(o => o.customPct != null);
-    if(hasCustom){
-      const preset = PRESET_WEIGHTS[n] || Array.from({length:n}, (_,i) => 100/n);
-      // Usa customPct dove presente, per gli altri usa il preset proporzionale
-      const result = orders.map((o, i) => o.customPct != null ? o.customPct : (preset[i] || 100/n));
-      // Rinormalizza a 100
-      const total = result.reduce((a,b)=>a+b,0);
-      if(total <= 0) return preset;
-      return result.map(v => Math.round(v/total*1000)/10);
-    }
+function getLadderWeights(n, prices){
+  // Pesi proporzionali alla distanza dal prezzo top (più lontano = peso maggiore)
+  // prices = [p1, p2, ..., pn] ordinati dal più vicino al più lontano (top→bottom per long, bottom→top per short)
+  if(!prices || prices.length < 2){
+    // equidistribuzione come fallback
+    const w = 100/n;
+    return Array(n).fill(w).map((v,i)=> parseFloat(v.toFixed(1)));
   }
-
-  // Usa preset di default
-  const preset = PRESET_WEIGHTS[n] || (() => {
-    const base = Array.from({length:n}, (_,i) => 10 + i*(20/Math.max(n-1,1)));
-    const tot = base.reduce((a,b)=>a+b,0);
-    return base.map(v => Math.round(v/tot*1000)/10);
-  })();
-  return preset;
+  const top = prices[0];
+  const dists = prices.map(p => Math.abs(p - top) + 0.0001); // dist dal primo livello
+  const totalDist = dists.reduce((a,b)=>a+b, 0);
+  const rawWeights = dists.map(d => d/totalDist * 100);
+  // Normalizza a 100%
+  const sum = rawWeights.reduce((a,b)=>a+b, 0);
+  const normalized = rawWeights.map(w => w/sum*100);
+  // Arrotonda e aggiusta per avere esattamente 100
+  const rounded = normalized.map(w => Math.round(w*10)/10);
+  const diff = 100 - rounded.reduce((a,b)=>a+b,0);
+  rounded[rounded.length-1] = Math.round((rounded[rounded.length-1]+diff)*10)/10;
+  return rounded;
 }
 
 function renderLadderOrders(){
@@ -1024,33 +1014,20 @@ function renderLadderOrders(){
   // Mantieni i prezzi già impostati
   while(LADDER.orders.length < 4) LADDER.orders.push({price:null, enabled:true, priceLine:null});
 
-  // Pre-calcola pesi di default per mostrare subito placeholder corretti
-  const defaultWeights = getLadderWeights(n, [], LADDER.orders.slice(0, n));
-
   let html = '';
   for(let i=0;i<n;i++){
     const idx = i+1;
     const order = LADDER.orders[i];
     const enabled = order.enabled !== false;
-    const pricePlaceholder = i===0 ? 'Top' : i===n-1 ? 'Bottom' : 'prezzo';
-    const customPct = order.customPct != null ? order.customPct : '';
-    // Placeholder mostra sempre la % di default (es. 15, 20, 30, 35)
-    const pctPlaceholder = defaultWeights[i] != null ? defaultWeights[i].toFixed(1) : '';
     html += `
     <div class="ladd-order ${enabled?'active':'inactive'}" id="ladd-row-${i}">
       <div class="ladd-num" style="color:${LADDER_COLORS[i]}">L${idx}</div>
       <div class="ladd-price-wrap" style="border-color:${LADDER_COLORS[i]}44">
-        <input type="number" id="ladd-price-${i}" placeholder="${pricePlaceholder}" 
+        <input type="number" id="ladd-price-${i}" placeholder="${idx===1?'Top':'Bottom'==='Bottom'&&i===n-1?'Bottom':'prezzo'}" 
           step="0.01" value="${order.price?fmtPrice(order.price):''}"
           oninput="onLadderPriceInput(${i})" style="color:${LADDER_COLORS[i]}"/>
       </div>
-      <div style="display:flex;align-items:center;background:var(--surface3);border:1px solid var(--border2);border-radius:3px;height:22px;min-width:52px">
-        <input type="number" id="ladd-pct-${i}" placeholder="${pctPlaceholder}" min="1" max="99" step="1"
-          value="${customPct}"
-          oninput="onLadderPctInput(${i})"
-          style="background:none;border:none;outline:none;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;color:${LADDER_COLORS[i]};width:0;flex:1;padding:0 3px;text-align:right"/>
-        <span style="font-size:9px;color:var(--muted);padding-right:4px;flex-shrink:0">%</span>
-      </div>
+      <div class="ladd-pct" id="ladd-pct-${i}">—</div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
         <div class="ladd-size" id="ladd-size-${i}">— USDT</div>
         <button class="ladd-toggle ${enabled?'on':'off'}" onclick="toggleLadderOrder(${i})" id="ladd-tog-${i}">${enabled?'✓':'○'}</button>
@@ -1092,13 +1069,6 @@ function onLadderPriceInput(i){
   syncLadderLinesToChart();
 }
 
-function onLadderPctInput(i){
-  const el = document.getElementById('ladd-pct-'+i);
-  const val = parseFloat(el.value);
-  LADDER.orders[i].customPct = (val > 0 && val < 100) ? val : null;
-  calcLadder();
-}
-
 function calcLadder(){
   if(S.orderType !== 'ladder') return;
 
@@ -1118,14 +1088,11 @@ function calcLadder(){
   }
 
   if(!activeOrders.length || !sl || !riskRaw){
-    // Azzera display ma mantieni i placeholder con i pesi di default
-    const defW = getLadderWeights(n, [], LADDER.orders.slice(0, n));
+    // Azzera display
     for(let i=0;i<n;i++){
       const pc = document.getElementById('ladd-pct-'+i);
       const sz = document.getElementById('ladd-size-'+i);
-      if(pc && pc.tagName==='INPUT'){
-        if(LADDER.orders[i].customPct == null) pc.placeholder = defW[i].toFixed(1);
-      } else if(pc){ pc.textContent='—'; }
+      if(pc) pc.textContent = '—';
       if(sz) sz.textContent = '— USDT';
     }
     document.getElementById('ladderSummary').style.display='none';
@@ -1135,7 +1102,7 @@ function calcLadder(){
 
   // Calcola pesi basati sulla distanza dal primo livello
   const prices = activeOrders.map(o=>o.price);
-  const weights = getLadderWeights(activeOrders.length, prices, activeOrders.map(o=>LADDER.orders[o.i]));
+  const weights = getLadderWeights(activeOrders.length, prices);
 
   // Calcola la size totale come: rischio totale / media ponderata delle distanze SL
   // Per mantenere il rischio costante: ogni ordine ha un proprio rischio proporzionale al suo peso
@@ -1160,19 +1127,11 @@ function calcLadder(){
     const sz = document.getElementById('ladd-size-'+i);
     const od = orderData.find(o=>o.i===i);
     if(!od){
-      // Ordine disabilitato o senza prezzo: mostra default weight come placeholder
-      if(pc && document.activeElement !== pc && LADDER.orders[i].customPct == null){
-        const defW2 = getLadderWeights(n, [], LADDER.orders.slice(0, n));
-        pc.placeholder = defW2[i] != null ? defW2[i].toFixed(1) : '';
-      }
+      if(pc) pc.textContent='—';
       if(sz) sz.textContent='— USDT';
       continue;
     }
-    // Aggiorna placeholder con % calcolata; non sovrascrivere se l'utente sta editando
-    if(pc && document.activeElement !== pc){
-      pc.placeholder = od.pct.toFixed(1);
-      if(LADDER.orders[i].customPct == null) pc.value = '';
-    }
+    if(pc) pc.textContent = od.pct.toFixed(1)+'%';
     if(sz) sz.textContent = fmt(od.size)+' U';
     totalSize += od.size;
     totalRisk += od.risk;
@@ -1518,7 +1477,7 @@ async function openLadderModal(){
   if(!activeOrders.length){notify('Nessun ordine ladder con prezzo impostato','err');return;}
 
   const prices=activeOrders.map(o=>o.price);
-  const weights=getLadderWeights(activeOrders.length,prices,activeOrders.map(o=>LADDER.orders[o.i]));
+  const weights=getLadderWeights(activeOrders.length,prices);
 
   // Calcola per ogni ordine: size, contratti, se eseguibile
   let ordersHtml='';
@@ -1772,7 +1731,7 @@ async function executeLadderOrders(){
   if(!activeOrders.length){notify('Nessun ordine ladder valido','err');return;}
 
   const prices=activeOrders.map(o=>o.price);
-  const weights=getLadderWeights(activeOrders.length,prices,activeOrders.map(o=>LADDER.orders[o.i]));
+  const weights=getLadderWeights(activeOrders.length,prices);
   const side      = S.dir==='long'?'buy':'sell';
   const tradeSide = 'open';
 
@@ -2463,7 +2422,7 @@ function roundRect(cx,x,y,w,h,r){
   cx.closePath();
 }
 
-// ─── FIREBASE + MULTI-EXCHANGE SYSTEM ───
+// ─── FIREBASE + BITGET SYSTEM ───
 (async () => {
   const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
   const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js');
@@ -2481,37 +2440,8 @@ function roundRect(cx,x,y,w,h,r){
   const db    = getFirestore(fbApp);
   let currentUser = null;
 
-  // ── PROXIES ──
-  const BITGET_PROXY  = 'https://bitget-proxy-mze2.onrender.com';
-  const BYBIT_PROXY   = 'https://bitget-proxy-mze2.onrender.com/bybit';   // same proxy, different route
-  const BINGX_PROXY   = 'https://bitget-proxy-mze2.onrender.com/bingx';
-  const BLOFIN_PROXY  = 'https://bitget-proxy-mze2.onrender.com/blofin';
-
-  // ── ACTIVE EXCHANGE STATE ──
-  // Persisted in localStorage so it survives refresh
-  let _activeExchange = localStorage.getItem('rf_active_exchange') || 'bitget';
-  const EXCHANGE_NAMES = { bitget:'Bitget', bybit:'Bybit', bingx:'BingX', blofin:'Blofin' };
-
-  function setActiveExchange(ex) {
-    _activeExchange = ex;
-    localStorage.setItem('rf_active_exchange', ex);
-    // Update topbar button
-    const topBtn = document.getElementById('apiTopExchange');
-    if (topBtn) topBtn.textContent = EXCHANGE_NAMES[ex] || 'API';
-    // Update active badge in modal
-    const badge = document.getElementById('apiActiveName');
-    if (badge) badge.textContent = EXCHANGE_NAMES[ex];
-  }
-
-  // ── EXCHANGE TAB SWITCHING ──
-  window.rfSwitchExchange = function(ex) {
-    // Switch tab active state
-    ['bitget','bybit','bingx','blofin'].forEach(e => {
-      document.getElementById('exTab-'+e)?.classList.toggle('active', e===ex);
-      document.getElementById('apiForm-'+e)?.classList.toggle('hidden', e!==ex);
-    });
-    setActiveExchange(ex);
-  };
+  // ── BITGET PROXY ──
+  const BITGET_PROXY = 'https://bitget-proxy-mze2.onrender.com';
 
   // ── CRYPTO AES-GCM ──
   const CRYPTO_SALT = 'vanillachart-bitget-v1';
@@ -2537,84 +2467,38 @@ function roundRect(cx,x,y,w,h,r){
     } catch { return ''; }
   }
 
-  // ── FIRESTORE KEY HELPERS (multi-exchange) ──
-  async function saveKeysToFirestore(uid, exchange, apiKey, secret, passphrase) {
+  // ── FIRESTORE KEY HELPERS ──
+  async function saveKeysToFirestore(uid, apiKey, secret, passphrase) {
     const [encKey,encSecret,encPass] = await Promise.all([encryptStr(uid,apiKey),encryptStr(uid,secret),encryptStr(uid,passphrase||'')]);
-    // Save per-exchange in a sub-document: apiKeys/{uid}/exchanges/{exchange}
-    await setDoc(doc(db,'apiKeys',uid), {activeExchange:exchange,updatedAt:Date.now()}, {merge:true});
-    await setDoc(doc(db,'apiKeys',uid,'exchanges',exchange), {exchange,encKey,encSecret,encPass,updatedAt:Date.now()});
-    // Also keep legacy bitget top-level for backwards compat
-    if (exchange==='bitget') {
-      await setDoc(doc(db,'apiKeys',uid), {exchange:'bitget',encKey,encSecret,encPass,updatedAt:Date.now()}, {merge:true});
-    }
+    await setDoc(doc(db,'apiKeys',uid), {exchange:'bitget',encKey,encSecret,encPass,updatedAt:Date.now()});
   }
-  async function loadKeysFromFirestore(uid, exchange) {
-    try {
-      const snap = await getDoc(doc(db,'apiKeys',uid,'exchanges',exchange));
-      if (snap.exists() && snap.data().encKey) {
-        const d = snap.data();
-        const [apiKey,secret,passphrase] = await Promise.all([decryptStr(uid,d.encKey||''),decryptStr(uid,d.encSecret||''),decryptStr(uid,d.encPass||'')]);
-        return {apiKey,secret,passphrase};
-      }
-    } catch {}
-    // Legacy fallback for bitget
-    if (exchange==='bitget') {
-      try {
-        const snap2 = await getDoc(doc(db,'apiKeys',uid));
-        if (snap2.exists() && snap2.data().encKey) {
-          const d = snap2.data();
-          const [apiKey,secret,passphrase] = await Promise.all([decryptStr(uid,d.encKey||''),decryptStr(uid,d.encSecret||''),decryptStr(uid,d.encPass||'')]);
-          return {apiKey,secret,passphrase};
-        }
-      } catch {}
-    }
-    return null;
+  async function loadKeysFromFirestore(uid) {
+    const snap = await getDoc(doc(db,'apiKeys',uid));
+    if (!snap.exists()) return null;
+    const d = snap.data();
+    const [apiKey,secret,passphrase] = await Promise.all([decryptStr(uid,d.encKey||''),decryptStr(uid,d.encSecret||''),decryptStr(uid,d.encPass||'')]);
+    return {apiKey,secret,passphrase};
   }
-  async function deleteKeysFromFirestore(uid, exchange) {
-    await setDoc(doc(db,'apiKeys',uid,'exchanges',exchange), {exchange,encKey:'',encSecret:'',encPass:'',updatedAt:Date.now()});
-    if (exchange==='bitget') {
-      await setDoc(doc(db,'apiKeys',uid), {exchange:'bitget',encKey:'',encSecret:'',encPass:'',updatedAt:Date.now()}, {merge:true});
-    }
+  async function deleteKeysFromFirestore(uid) {
+    await setDoc(doc(db,'apiKeys',uid), {exchange:'bitget',encKey:'',encSecret:'',encPass:'',updatedAt:Date.now()});
   }
 
-  // ── LOCALSTORAGE HELPERS (multi-exchange) ──
-  function loadExchangeKeys(exchange) {
+  // ── LOCALSTORAGE HELPERS ──
+  function loadBitgetKeys() {
     return {
-      apiKey: localStorage.getItem(exchange+'_api_key')||'',
-      secret: localStorage.getItem(exchange+'_api_secret')||'',
-      passphrase: localStorage.getItem(exchange+'_api_passphrase')||''
+      apiKey: localStorage.getItem('bitget_api_key')||'',
+      secret: localStorage.getItem('bitget_api_secret')||'',
+      passphrase: localStorage.getItem('bitget_api_passphrase')||''
     };
   }
-  function saveExchangeKeysLocal(exchange, apiKey, secret, passphrase) {
-    localStorage.setItem(exchange+'_api_key', apiKey);
-    localStorage.setItem(exchange+'_api_secret', secret);
-    if (passphrase) localStorage.setItem(exchange+'_api_passphrase', passphrase);
-  }
-  function deleteExchangeKeysLocal(exchange) {
-    localStorage.removeItem(exchange+'_api_key');
-    localStorage.removeItem(exchange+'_api_secret');
-    localStorage.removeItem(exchange+'_api_passphrase');
-  }
-  // Legacy alias for Bitget (keep existing code working)
-  function loadBitgetKeys() { return loadExchangeKeys('bitget'); }
-
   async function syncKeysFromFirestore(uid) {
-    // Sync all exchanges
-    for (const ex of ['bitget','bybit','bingx','blofin']) {
-      const keys = await loadKeysFromFirestore(uid, ex);
-      if (!keys||!keys.apiKey) continue;
-      if (!localStorage.getItem(ex+'_api_key')) {
-        saveExchangeKeysLocal(ex, keys.apiKey, keys.secret, keys.passphrase);
-      }
+    const keys = await loadKeysFromFirestore(uid);
+    if (!keys||!keys.apiKey) return;
+    if (!localStorage.getItem('bitget_api_key')) {
+      localStorage.setItem('bitget_api_key', keys.apiKey);
+      localStorage.setItem('bitget_api_secret', keys.secret);
+      if (keys.passphrase) localStorage.setItem('bitget_api_passphrase', keys.passphrase);
     }
-    // Restore active exchange pref
-    try {
-      const snap = await getDoc(doc(db,'apiKeys',uid));
-      if (snap.exists() && snap.data().activeExchange && !localStorage.getItem('rf_active_exchange')) {
-        _activeExchange = snap.data().activeExchange;
-        localStorage.setItem('rf_active_exchange', _activeExchange);
-      }
-    } catch {}
   }
 
   // ── BITGET REQUEST via Proxy ──
@@ -2623,7 +2507,6 @@ function roundRect(cx,x,y,w,h,r){
     if (!apiKey||!secret) throw new Error('Chiavi API non configurate');
     const method = options.method||'GET';
     let url, fetchOpts;
-
     if(method==='GET'){
       const qstr = new URLSearchParams({endpoint,...params}).toString();
       url = `${BITGET_PROXY}?${qstr}`;
@@ -3448,13 +3331,10 @@ function roundRect(cx,x,y,w,h,r){
         const snap = await getDoc(doc(db,'profiles',user.uid));
         const username = snap.exists() ? snap.data().username : user.email;
         await syncKeysFromFirestore(user.uid);
-        // Init exchange state UI
-        setActiveExchange(_activeExchange);
         rfShowApp(username);
-        // Auto-fetch if Bitget keys present (or whichever active exchange)
-        const {apiKey} = loadExchangeKeys(_activeExchange);
-        if (apiKey && _activeExchange==='bitget') setTimeout(()=>fetchBitgetDashboard(), 1500);
-        else if (apiKey) setTimeout(()=>notify(EXCHANGE_NAMES[_activeExchange]+' API configurate ✓','ok'), 1500);
+        // Auto-fetch Bitget se keys presenti
+        const {apiKey} = loadBitgetKeys();
+        if (apiKey) setTimeout(()=>fetchBitgetDashboard(), 1500);
       } catch { rfShowApp(user.email); }
     } else {
       currentUser = null;
@@ -3486,16 +3366,15 @@ function roundRect(cx,x,y,w,h,r){
     const errEl = document.getElementById('rf-login-err');
     const btn   = document.getElementById('rf-login-btn');
     if (!user||!pass) { errEl.textContent='Compila tutti i campi.'; return; }
-    if (!grecaptcha.getResponse()) { errEl.textContent='Completa il captcha.'; return; }
     btn.disabled=true; errEl.textContent='';
     try {
       const q = query(collection(db,'usernames'), where('username','==',user.toLowerCase()));
       const snap = await getDocs(q);
-      if (snap.empty) { errEl.textContent='Username non trovato.'; btn.disabled=false; grecaptcha.reset(); return; }
+      if (snap.empty) { errEl.textContent='Username non trovato.'; btn.disabled=false; return; }
       await signInWithEmailAndPassword(auth, snap.docs[0].data().email, pass);
     } catch(e) {
       errEl.textContent = e.code==='auth/wrong-password' ? 'Password errata.' : 'Credenziali non valide.';
-      btn.disabled=false; grecaptcha.reset();
+      btn.disabled=false;
     }
   };
 
@@ -3511,11 +3390,10 @@ function roundRect(cx,x,y,w,h,r){
     if (!user||!email||!pass) { errEl.textContent='Compila tutti i campi.'; return; }
     if (user.length<3) { errEl.textContent='Username minimo 3 caratteri.'; return; }
     if (pass.length<6) { errEl.textContent='Password minimo 6 caratteri.'; return; }
-    if (!grecaptcha.getResponse()) { errEl.textContent='Completa il captcha.'; return; }
     btn.disabled=true; errEl.textContent='';
     try {
       const unameDoc = await getDoc(doc(db,'usernames',user));
-      if (unameDoc.exists()) { errEl.textContent='Username già in uso.'; btn.disabled=false; grecaptcha.reset(); return; }
+      if (unameDoc.exists()) { errEl.textContent='Username già in uso.'; btn.disabled=false; return; }
       const cred = await createUserWithEmailAndPassword(auth, email, pass);
       await setDoc(doc(db,'usernames',user), {username:user,email,uid:cred.user.uid});
       await setDoc(doc(db,'profiles',cred.user.uid), {username:user,createdAt:Date.now()});
@@ -3523,7 +3401,7 @@ function roundRect(cx,x,y,w,h,r){
       let msg='Errore durante la registrazione.';
       if (e.code==='auth/email-already-in-use') msg='Email già registrata.';
       if (e.code==='auth/invalid-email') msg='Email non valida.';
-      errEl.textContent=msg; btn.disabled=false; grecaptcha.reset();
+      errEl.textContent=msg; btn.disabled=false;
     }
   };
 
@@ -3545,7 +3423,9 @@ function roundRect(cx,x,y,w,h,r){
   // ── LOGOUT ──
   window.rfDoLogout = async function() {
     await signOut(auth);
-    for (const ex of ['bitget','bybit','bingx','blofin']) deleteExchangeKeysLocal(ex);
+    localStorage.removeItem('bitget_api_key');
+    localStorage.removeItem('bitget_api_secret');
+    localStorage.removeItem('bitget_api_passphrase');
     document.getElementById('auth-overlay').classList.remove('hidden');
     document.getElementById('userBadge').classList.remove('visible');
   };
@@ -3554,136 +3434,69 @@ function roundRect(cx,x,y,w,h,r){
   window.rfLoadApiKeysUI = async function() {
     if (!currentUser) return;
     const statusEl = document.getElementById('apiStatus');
-
-    // Restore tab to active exchange
-    rfSwitchExchange(_activeExchange);
-
-    // Update connected dots for all exchanges
-    const updateDot = async (ex) => {
-      const dot = document.getElementById('exDot-'+ex);
-      if (!dot) return;
-      const keys = loadExchangeKeys(ex);
-      if (keys.apiKey) { dot.classList.add('connected'); }
-      else {
-        const fsKeys = await loadKeysFromFirestore(currentUser.uid, ex).catch(()=>null);
-        if (fsKeys?.apiKey) dot.classList.add('connected');
-        else dot.classList.remove('connected');
+    try {
+      const snap = await getDoc(doc(db,'apiKeys',currentUser.uid));
+      if (snap.exists() && snap.data().encKey) {
+        const d = snap.data();
+        const [k,s,p] = await Promise.all([decryptStr(currentUser.uid,d.encKey),decryptStr(currentUser.uid,d.encSecret||''),decryptStr(currentUser.uid,d.encPass||'')]);
+        document.getElementById('apiKeyInput').value=k;
+        document.getElementById('apiSecretInput').value=s?'••••••••••••••••':'';
+        document.getElementById('apiPassInput').value=p?'••••••••':'';
+        if (statusEl) { statusEl.textContent='✓ API keys salvate'; statusEl.className='api-status ok'; }
+      } else {
+        if (statusEl) { statusEl.textContent='Nessuna API key salvata'; statusEl.className='api-status err'; }
       }
-    };
-    for (const ex of ['bitget','bybit','bingx','blofin']) updateDot(ex);
-
-    // Fill in form for current exchange
-    const fillForm = async (ex) => {
-      let k='', s='', p='';
-      const local = loadExchangeKeys(ex);
-      if (local.apiKey) { k=local.apiKey; s='••••••••••••••••'; if(local.passphrase) p='••••••••'; }
-      else {
-        const fsKeys = await loadKeysFromFirestore(currentUser.uid, ex).catch(()=>null);
-        if (fsKeys?.apiKey) { k=fsKeys.apiKey; s='••••••••••••••••'; if(fsKeys.passphrase) p='••••••••'; }
-      }
-      const ids = { bitget:['apiKeyInput','apiSecretInput','apiPassInput'], bybit:['bybitKeyInput','bybitSecretInput',null], bingx:['bingxKeyInput','bingxSecretInput',null], blofin:['blofinKeyInput','blofinSecretInput','blofinPassInput'] };
-      const [kId,sId,pId] = ids[ex]||[];
-      if (kId) document.getElementById(kId).value = k;
-      if (sId) document.getElementById(sId).value = s||'';
-      if (pId) document.getElementById(pId).value = p||'';
-    };
-    for (const ex of ['bitget','bybit','bingx','blofin']) fillForm(ex);
-
-    if (statusEl) {
-      const {apiKey} = loadExchangeKeys(_activeExchange);
-      if (apiKey) { statusEl.textContent='✓ '+EXCHANGE_NAMES[_activeExchange]+' configurato'; statusEl.className='api-status ok'; }
-      else { statusEl.textContent='Nessuna API key per '+EXCHANGE_NAMES[_activeExchange]; statusEl.className='api-status err'; }
-    }
+    } catch { if(statusEl){statusEl.textContent='Errore caricamento';statusEl.className='api-status err';} }
   };
 
   window.rfSaveApiKeys = async function() {
     if (!currentUser) { notify('Devi essere loggato','err'); return; }
+    const k = document.getElementById('apiKeyInput').value.trim();
+    const s = document.getElementById('apiSecretInput').value.trim();
+    const p = document.getElementById('apiPassInput').value.trim();
     const statusEl = document.getElementById('apiStatus');
-    const ex = _activeExchange;
-
-    // Read inputs based on exchange
-    const inputMap = {
-      bitget:  ['apiKeyInput','apiSecretInput','apiPassInput'],
-      bybit:   ['bybitKeyInput','bybitSecretInput',null],
-      bingx:   ['bingxKeyInput','bingxSecretInput',null],
-      blofin:  ['blofinKeyInput','blofinSecretInput','blofinPassInput'],
-    };
-    const [kId,sId,pId] = inputMap[ex]||['apiKeyInput','apiSecretInput','apiPassInput'];
-    const k = document.getElementById(kId)?.value.trim()||'';
-    const s = document.getElementById(sId)?.value.trim()||'';
-    const p = pId ? (document.getElementById(pId)?.value.trim()||'') : '';
-
     if (!k||!s) { if(statusEl){statusEl.textContent='API Key e Secret obbligatori';statusEl.className='api-status err';} return; }
-
-    // Preserve existing if masked
-    const prev = loadExchangeKeys(ex);
-    const finalK = k.includes('•') ? prev.apiKey||k : k;
-    const finalS = s.includes('•') ? prev.secret||s : s;
-    const finalP = p.includes('•') ? prev.passphrase||p : p;
-
+    // Se contengono •, mantieni i valori esistenti
+    const finalK = k.includes('•') ? localStorage.getItem('bitget_api_key')||k : k;
+    const finalS = s.includes('•') ? localStorage.getItem('bitget_api_secret')||s : s;
+    const finalP = p.includes('•') ? localStorage.getItem('bitget_api_passphrase')||p : p;
     if (statusEl) { statusEl.textContent='Salvataggio...'; statusEl.className='api-status'; }
     try {
-      await saveKeysToFirestore(currentUser.uid, ex, finalK, finalS, finalP);
-      saveExchangeKeysLocal(ex, finalK, finalS, finalP);
-      // Update dot
-      const dot = document.getElementById('exDot-'+ex);
-      if (dot) dot.classList.add('connected');
+      await saveKeysToFirestore(currentUser.uid, finalK, finalS, finalP);
+      localStorage.setItem('bitget_api_key', finalK);
+      localStorage.setItem('bitget_api_secret', finalS);
+      if (finalP) localStorage.setItem('bitget_api_passphrase', finalP);
       document.getElementById('apiModal').classList.remove('open');
-      notify(EXCHANGE_NAMES[ex]+' API keys salvate ✓','ok');
-      setTimeout(()=>rfExchangeSync(), 500);
+      notify('API keys salvate ✓','ok');
+      // Test connessione
+      setTimeout(()=>fetchBitgetDashboard(), 500);
     } catch(e) { if(statusEl){statusEl.textContent='✗ '+e.message;statusEl.className='api-status err';} }
   };
 
   window.rfDeleteApiKeys = async function() {
     if (!currentUser) return;
-    const ex = _activeExchange;
-    if (!confirm('Eliminare le API keys di '+EXCHANGE_NAMES[ex]+'?')) return;
-    await deleteKeysFromFirestore(currentUser.uid, ex);
-    deleteExchangeKeysLocal(ex);
-    // Clear form inputs
-    const inputMap = {
-      bitget:  ['apiKeyInput','apiSecretInput','apiPassInput'],
-      bybit:   ['bybitKeyInput','bybitSecretInput',null],
-      bingx:   ['bingxKeyInput','bingxSecretInput',null],
-      blofin:  ['blofinKeyInput','blofinSecretInput','blofinPassInput'],
-    };
-    for (const id of (inputMap[ex]||[])) { if (id) document.getElementById(id).value=''; }
-    // Update dot
-    const dot = document.getElementById('exDot-'+ex);
-    if (dot) dot.classList.remove('connected');
+    if (!confirm('Eliminare le API keys?')) return;
+    await deleteKeysFromFirestore(currentUser.uid);
+    localStorage.removeItem('bitget_api_key');
+    localStorage.removeItem('bitget_api_secret');
+    localStorage.removeItem('bitget_api_passphrase');
+    document.getElementById('apiKeyInput').value='';
+    document.getElementById('apiSecretInput').value='';
+    document.getElementById('apiPassInput').value='';
     document.getElementById('apiModal').classList.remove('open');
-    // Reset panel balance only if active was bitget
-    if (ex==='bitget') {
-      document.getElementById('accBalance').textContent='—';
-      S.balance=4250;
-    }
-    notify(EXCHANGE_NAMES[ex]+' API keys eliminate','ok');
+    document.getElementById('accBalance').textContent='—';
+    S.balance=4250;
+    notify('API keys eliminate','ok');
   };
 
   // ── SYNC MANUALE ──
-  window.rfExchangeSync = function() {
-    // Always sync Bitget (the primary exchange for now)
-    // Future: route to correct exchange handler based on _activeExchange
-    const {apiKey} = loadExchangeKeys(_activeExchange);
-    if (!apiKey) { notify('Nessuna API '+EXCHANGE_NAMES[_activeExchange]+' configurata','err'); return; }
-    // For now all real trading calls go to Bitget; other exchanges show "coming soon" notice
-    if (_activeExchange === 'bitget') {
-      fetchBitgetDashboard();
-    } else {
-      notify(EXCHANGE_NAMES[_activeExchange]+': keys salvate. Il trading live su questo exchange sarà disponibile presto.','ok');
-    }
-  };
-  // Legacy alias
   window.rfBitgetSync = function() { fetchBitgetDashboard(); };
 
   // Esponi per il refresh button del panel
   window.refreshAccount = function() { 
-    const {apiKey} = loadExchangeKeys(_activeExchange);
-    if (apiKey) {
-      if (_activeExchange==='bitget') fetchBitgetDashboard();
-      else notify(EXCHANGE_NAMES[_activeExchange]+': sync disponibile presto.','ok');
-    }
-    else notify('API '+EXCHANGE_NAMES[_activeExchange]+' non configurate','err');
+    const {apiKey} = loadBitgetKeys();
+    if (apiKey) fetchBitgetDashboard();
+    else notify('API Bitget non configurate','err');
   };
 
 })();
