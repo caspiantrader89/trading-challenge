@@ -520,18 +520,24 @@ function drawPosLines() {
     ctx.restore();
 
     // ── SL LINE ─────────────────────────────────────────────────
-    if (sl && sl > 0) {
-      const slY = candleSeries.priceToCoordinate(sl);
+    // Priorità: registry _posSLLines (aggiornato da drag/sync) > campo grezzo posizione
+    const slPrice = (window._posSLLines && window._posSLLines[idx] && window._posSLLines[idx].price)
+      ? window._posSLLines[idx].price : sl;
+    if (slPrice && slPrice > 0) {
+      const slY = candleSeries.priceToCoordinate(slPrice);
       if (slY !== null && slY !== undefined) {
-        _drawPosSubLine(idx, 'sl', sl, slY, upnl, entry, size, sym, isLong, W);
+        _drawPosSubLine(idx, 'sl', slPrice, slY, upnl, entry, size, sym, isLong, W);
       }
     }
 
     // ── TP LINE ─────────────────────────────────────────────────
-    if (tp && tp > 0) {
-      const tpY = candleSeries.priceToCoordinate(tp);
+    // Priorità: registry _posTPLines > campo grezzo posizione
+    const tpPrice = (window._posTPLines && window._posTPLines[idx+'_1'] && window._posTPLines[idx+'_1'].price)
+      ? window._posTPLines[idx+'_1'].price : tp;
+    if (tpPrice && tpPrice > 0) {
+      const tpY = candleSeries.priceToCoordinate(tpPrice);
       if (tpY !== null && tpY !== undefined) {
-        _drawPosSubLine(idx, 'tp', tp, tpY, upnl, entry, size, sym, isLong, W);
+        _drawPosSubLine(idx, 'tp', tpPrice, tpY, upnl, entry, size, sym, isLong, W);
       }
     }
   });
@@ -550,7 +556,7 @@ function _drawPosSubLine(idx, lineType, price, y, upnl, entry, size, sym, isLong
 
   ctx.save();
 
-  // ── LINEA tratteggiata (la priceLine LW la gestisce già ma aggiungiamo il canvas per il drag feedback) ──
+  // ── LINEA tratteggiata ──
   ctx.strokeStyle = lineColor;
   ctx.lineWidth = isSL ? 1.5 : 1;
   ctx.setLineDash([6, 4]);
@@ -559,112 +565,113 @@ function _drawPosSubLine(idx, lineType, price, y, upnl, entry, size, sym, isLong
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 
-  const H_PILL = 20, R = 3, PAD = 7, GAP = 5;
-
   // ── calcola P&L a questo livello ──
   const pnlAtLevel = (isLong ? (price - entry) : (entry - price)) * size;
-  const pnlSign = pnlAtLevel >= 0 ? '+' : '-';
-  const pnlStr  = pnlSign + '$' + fmt(Math.abs(pnlAtLevel));
-  const pnlColor = pnlAtLevel >= 0 ? '#26a69a' : '#ef5350';
+  const pnlColor   = pnlAtLevel >= 0 ? '#26a69a' : '#ef5350';
+  const pnlStr     = (pnlAtLevel >= 0 ? '+' : '') + fmt(pnlAtLevel) + ' USD';
 
-  // ── distanza % dall'entry ──
+  // distanza % dall'entry
   const distPct = entry > 0 ? ((Math.abs(price - entry) / entry) * 100).toFixed(2) + '%' : '';
 
-  // ── HANDLE CENTRALE draggabile (stile identico alle linee calcolatrice) ──
-  const typeLabel = isSL ? 'SL' : 'TP';
-  const handleLabel = `⇅  ${typeLabel}#${idx+1}  ⇅`;
-  ctx.font = 'bold 9px "DM Mono",monospace';
-  const hw = ctx.measureText(handleLabel).width + 24;
-  const hh = 16;
-  const hx = W / 2 - hw / 2;
-  const hy = y - hh / 2;
+  // ── GRUPPO 3 PILL CENTRATO (identico alla entry line) ──
+  // pill 1: tipo SL/TP (sfondo pieno lineColor)
+  // pill 2: quantità token (sfondo scuro bordo lineColor)
+  // pill 3: PnL at level (sfondo scuro bordo pnlColor)
+  const typeLabel = (isSL ? 'SL' : 'TP') + '#' + (idx + 1);
+  const coinStr   = fmt6(size) + ' ' + sym;
+
+  const FONT_BOLD = 'bold 11px "DM Mono",monospace';
+  const FONT_REG  = '11px "DM Mono",monospace';
+  ctx.font = FONT_BOLD;
+  const typeW = ctx.measureText(typeLabel).width;
+  ctx.font = FONT_REG;
+  const coinW = ctx.measureText(coinStr).width;
+  const pnlW  = ctx.measureText(pnlStr).width;
+
+  const PAD = 8, GAP = 6, H = 22, R = 4;
+  const typePillW = typeW + PAD * 2;
+  const coinPillW = coinW + PAD * 2;
+  const pnlPillW  = pnlW  + PAD * 2;
+  const totalGroupW = typePillW + GAP + coinPillW + GAP + pnlPillW;
+
+  const groupStartX = W / 2 - totalGroupW / 2;
+  const pillY = y - H / 2;
+
+  // pill tipo
   ctx.fillStyle = lineColor;
-  rrect(ctx, hx, hy, hw, hh, 4); ctx.fill();
-  ctx.fillStyle = 'rgba(0,0,0,0.82)';
-  ctx.textAlign = 'center';
+  rrect(ctx, groupStartX, pillY, typePillW, H, R); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = FONT_BOLD;
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(handleLabel, W / 2, y);
+  ctx.fillText(typeLabel, groupStartX + PAD, y);
+
+  // pill coin
+  const coinX = groupStartX + typePillW + GAP;
+  ctx.fillStyle = 'rgba(20,20,28,0.92)';
+  rrect(ctx, coinX, pillY, coinPillW, H, R); ctx.fill();
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = lineColor;
+  ctx.font = FONT_REG;
+  ctx.fillText(coinStr, coinX + PAD, y);
+
+  // pill PnL
+  const pnlX = coinX + coinPillW + GAP;
+  ctx.fillStyle = 'rgba(20,20,28,0.92)';
+  rrect(ctx, pnlX, pillY, pnlPillW, H, R); ctx.fill();
+  ctx.strokeStyle = pnlColor; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = pnlColor;
+  ctx.fillText(pnlStr, pnlX + PAD, y);
+
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
-  // ── ✕ remove button SOPRA l'handle ──
+  // ── ✕ remove button — cerchietto SOPRA il gruppo, centrato ──
   const xBtnX = W / 2;
-  const xBtnY = y - hh / 2 - 10;
+  const xBtnY = pillY - 10;
   const xBtnR = 7;
   ctx.beginPath();
   ctx.arc(xBtnX, xBtnY, xBtnR, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(14,14,16,0.95)';
-  ctx.fill();
-  ctx.strokeStyle = lineColor;
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
+  ctx.fillStyle = 'rgba(14,14,16,0.95)'; ctx.fill();
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 1.2; ctx.stroke();
   ctx.fillStyle = lineColor;
   ctx.font = 'bold 9px "DM Mono",monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('✕', xBtnX, xBtnY);
-  ctx.textBaseline = 'alphabetic';
-  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
   window._posLineZones[`${lineType}_x_${idx}`] = { x: xBtnX - xBtnR, y: xBtnY - xBtnR, w: xBtnR * 2, h: xBtnR * 2, idx, action: `remove_${lineType}` };
 
-  // ── BADGE SINISTRA — PnL at level ──
-  ctx.font = 'bold 11px "DM Mono",monospace';
-  const lw2 = ctx.measureText(pnlStr).width + 20;
-  const lx2 = W / 2 - hw / 2 - 8 - lw2;
-  const py2  = y - 22 / 2;
-  ctx.fillStyle = 'rgba(20,20,28,0.92)';
-  rrect(ctx, lx2, py2, lw2, 22, 5); ctx.fill();
-  ctx.strokeStyle = pnlColor;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = pnlColor;
-  ctx.fillText(pnlStr, lx2 + 10, y + 4.5);
-
-  // ── BADGE DESTRA — distanza % + BE button (solo SL) ──
-  const rx2 = W / 2 + hw / 2 + 8;
-  if (isSL && distPct) {
-    // badge distanza %
-    const rw2 = ctx.measureText(distPct).width + 20;
+  // ── badge distanza % a SINISTRA del gruppo ──
+  if (distPct) {
+    ctx.font = 'bold 10px "DM Mono",monospace';
+    const dw = ctx.measureText(distPct).width + 14;
+    const dx = groupStartX - 8 - dw;
+    const dy = y - 18 / 2;
     ctx.fillStyle = 'rgba(20,20,28,0.92)';
-    rrect(ctx, rx2, py2, rw2, 22, 5); ctx.fill();
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    rrect(ctx, dx, dy, dw, 18, 3); ctx.fill();
+    ctx.strokeStyle = lineColor; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = lineColor;
-    ctx.fillText(distPct, rx2 + 10, y + 4.5);
+    ctx.fillText(distPct, dx + 7, y + 3.5);
+  }
 
-    // ── BE button — pillola "BE" dopo il badge distanza ──
+  // ── BE button a DESTRA del gruppo (solo SL) ──
+  if (isSL) {
     const beLabel = 'BE';
     ctx.font = 'bold 9px "DM Mono",monospace';
     const beW = ctx.measureText(beLabel).width + 16;
-    const beH = 18, beR = 4;
-    const beX = rx2 + rw2 + 6;
+    const beH = 18;
+    const beX = groupStartX + totalGroupW + 8;
     const beY = y - beH / 2;
-    // sfondo accent/giallo
     ctx.fillStyle = '#ffc940';
-    rrect(ctx, beX, beY, beW, beH, beR); ctx.fill();
+    rrect(ctx, beX, beY, beW, beH, 4); ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.9)';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(beLabel, beX + beW / 2, y);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    // registra zona click BE
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     window._posLineZones[`sl_be_${idx}`] = { x: beX, y: beY, w: beW, h: beH, idx, action: 'be' };
-  } else if (!isSL && distPct) {
-    // TP: mostra distanza % a destra
-    ctx.font = 'bold 11px "DM Mono",monospace';
-    const rw2 = ctx.measureText(distPct).width + 20;
-    ctx.fillStyle = 'rgba(20,20,28,0.92)';
-    rrect(ctx, rx2, py2, rw2, 22, 5); ctx.fill();
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = lineColor;
-    ctx.fillText(distPct, rx2 + 10, y + 4.5);
   }
 
-  // ── badge prezzo destra (vicino asse Y) ──
+  // ── badge prezzo vicino asse Y (destra) ──
   const priceStr = '$' + fmtPrice(price);
   ctx.font = '9px "DM Mono",monospace';
   const priceW2 = ctx.measureText(priceStr).width + 12;
@@ -3653,7 +3660,20 @@ function roundRect(cx,x,y,w,h,r){
     if (!exp) return;
     const isOpen = exp.classList.contains('open');
     document.querySelectorAll('.pos-expand').forEach(e=>e.classList.remove('open'));
-    if (!isOpen) exp.classList.add('open');
+    if (!isOpen) {
+      exp.classList.add('open');
+      // Switch chart al simbolo della posizione
+      const p = _positions[idx];
+      if (p) {
+        const sym = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi,'');
+        if (sym && sym !== S.symbol) {
+          S.symbol = sym;
+          document.getElementById('symInput').textContent = sym;
+          clearAll();
+          loadCandles(sym, S.tf);
+        }
+      }
+    }
   };
 
   window.updatePctDisplay = function(idx, size, upnl) {
