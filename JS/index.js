@@ -13,9 +13,13 @@ const firebaseConfig = {
   appId: "1:349225228306:web:294ae3bd5bee71c9d7a0cb"
 };
 
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app);
+
 const FIREBASE_CONFIGURED = true;
 
-let app, auth, db, storage;
 let currentUser = null;
 let currentState = null;
 let currentRR = 2;
@@ -199,27 +203,34 @@ function renderLeaderboard(entries, myUsername) {
   }).join('').replace(/border-bottom[^"]+">(?=[^<]*<\/div>\s*$)/,'">');
 }
 
+let appInitialized = false;
+
 function showApp(state, readOnly=false) {
   isReadOnly = readOnly;
-  document.getElementById('loading-screen').style.display = 'none';
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app-screen').style.display = 'block';
-  document.getElementById('share-btn').style.display = readOnly ? 'none' : 'inline-block';
-  document.getElementById('journal-btn').style.display = readOnly ? 'none' : 'inline-block';
-  document.getElementById('profile-btn').style.display = readOnly ? 'none' : 'inline-flex';
-  document.getElementById('trade-form-section').style.display = readOnly ? 'none' : 'block';
-  if (readOnly) {
-    document.getElementById('readonly-banner').classList.add('visible');
-    document.getElementById('readonly-name').textContent = state.username;
+
+  if (!appInitialized) {
+    appInitialized = true;
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    document.getElementById('share-btn').style.display = readOnly ? 'none' : 'inline-block';
+    document.getElementById('journal-btn').style.display = readOnly ? 'none' : 'inline-block';
+    document.getElementById('profile-btn').style.display = readOnly ? 'none' : 'inline-flex';
+    document.getElementById('trade-form-section').style.display = readOnly ? 'none' : 'block';
+    if (readOnly) {
+      document.getElementById('readonly-banner').classList.add('visible');
+      document.getElementById('readonly-name').textContent = state.username;
+    }
+    if (!readOnly) syncKeysFromFirestore().then(() => initBitgetDashboard()).catch(() => {});
+    if (unsubLb) unsubLb();
+    unsubLb = onSnapshot(collection(db, 'challenges'), snap => {
+      const entries = snap.docs.map(d => d.data()).filter(d => d.username && d.capital !== undefined);
+      renderLeaderboardByMode(entries, state.username);
+    });
   }
+
+  // render AFTER the screen is visible
   renderState(state);
-  // Ripristina keys Bitget da Firestore se localStorage vuoto (nuovo device/browser)
-  if (!readOnly) syncKeysFromFirestore().then(() => initBitgetDashboard()).catch(() => {});
-  if (unsubLb) unsubLb();
-  unsubLb = onSnapshot(collection(db, 'challenges'), snap => {
-    const entries = snap.docs.map(d => d.data()).filter(d => d.username && d.capital !== undefined);
-    renderLeaderboardByMode(entries, state.username);
-  });
 }
 
 function showAuth() {
@@ -236,15 +247,41 @@ window.switchTab = function(tab) {
   });
 };
 
-window.doLogin = async function() {
-  if (!FIREBASE_CONFIGURED) { document.getElementById('login-err').textContent = 'Firebase non configurato — vedi istruzioni.'; return; }
+window.doLogin = async function(event) {
+  event.preventDefault();
+  if (!FIREBASE_CONFIGURED) { document.getElementById('login-err').textContent = 'Firebase non configurato.'; return; }
+
+  // 1. Check captcha first
+  const tokenInput = document.querySelector('[name="cf-turnstile-response"]');
+  const token = tokenInput ? tokenInput.value : null;
+  if (!token) {
+    document.getElementById('login-err').textContent = 'Attendi la verifica di sicurezza.';
+    return;
+  }
+
+  try {
+    const captchaRes = await fetch('https://vanillachart-api.vercel.app/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turnstileToken: token })
+    });
+    const captchaResult = await captchaRes.json();
+    if (!captchaRes.ok) {
+      document.getElementById('login-err').textContent = captchaResult.error || 'Verifica captcha fallita.';
+      return;
+    }
+  } catch(e) {
+    document.getElementById('login-err').textContent = 'Errore di connessione al server.';
+    return;
+  }
+
+  // 2. Captcha passed — proceed with Firebase login (your existing code)
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
   if (!user || !pass) { document.getElementById('login-err').textContent = 'Compila tutti i campi.'; return; }
   const btn = document.getElementById('login-btn');
   btn.disabled = true; document.getElementById('login-err').textContent = '';
   try {
-    // Lookup email from username
     const q = query(collection(db, 'usernames'), where('username', '==', user.toLowerCase()));
     const snap = await getDocs(q);
     if (snap.empty) { document.getElementById('login-err').textContent = 'Username non trovato.'; btn.disabled=false; return; }
@@ -254,6 +291,131 @@ window.doLogin = async function() {
     document.getElementById('login-err').textContent = e.code === 'auth/wrong-password' ? 'Password errata.' : 'Errore: ' + e.message;
     btn.disabled = false;
   }
+};
+
+window.doRegister = async function(event) {
+  event.preventDefault();
+  if (!FIREBASE_CONFIGURED) { document.getElementById('reg-err').textContent = 'Firebase non configurato — vedi istruzioni.'; return; }
+
+  // 1. Captcha check
+  const tokenInput = document.querySelector('#form-register [name="cf-turnstile-response"]');
+  const token = tokenInput ? tokenInput.value : null;
+  if (!token) {
+    document.getElementById('reg-err').textContent = 'Attendi la verifica di sicurezza.';
+    return;
+  }
+
+  try {
+    const captchaRes = await fetch('https://vanillachart-api.vercel.app/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turnstileToken: token })
+    });
+    const captchaResult = await captchaRes.json();
+    if (!captchaRes.ok) {
+      document.getElementById('reg-err').textContent = captchaResult.error || 'Verifica captcha fallita.';
+      return;
+    }
+  } catch(e) {
+    document.getElementById('reg-err').textContent = 'Errore di connessione al server.';
+    return;
+  }
+
+  // 2. Captcha passed — proceed with Firebase registration
+  const user = document.getElementById('reg-user').value.trim().toLowerCase();
+  const email = document.getElementById('reg-email').value.trim();
+  const pass = document.getElementById('reg-pass').value;
+  const gdprOk = document.getElementById('reg-gdpr')?.checked;
+  const marketingOk = document.getElementById('reg-marketing')?.checked || false;
+
+  if (!gdprOk) { document.getElementById('reg-err').textContent = 'Devi accettare la Privacy Policy per registrarti.'; return; }
+  if (!user || !email || !pass) { document.getElementById('reg-err').textContent = 'Compila tutti i campi.'; return; }
+  if (user.length < 3) { document.getElementById('reg-err').textContent = 'Username minimo 3 caratteri.'; return; }
+  if (pass.length < 6) { document.getElementById('reg-err').textContent = 'Password minimo 6 caratteri.'; return; }
+
+  const btn = document.getElementById('reg-btn');
+  btn.disabled = true; document.getElementById('reg-err').textContent = '';
+
+  try {
+    // Check username availability
+    const unameDoc = await getDoc(doc(db, 'usernames', user));
+    if (unameDoc.exists()) { document.getElementById('reg-err').textContent = 'Username già in uso.'; btn.disabled=false; return; }
+
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+
+    // Save username → email mapping
+    await setDoc(doc(db, 'usernames', user), { username: user, email: email, uid: cred.user.uid });
+
+    // Create initial challenge data
+    const initState = {
+      username: user, capital: 100, trades: [], consecutiveLoss: 0,
+      createdAt: Date.now(),
+      gdprConsentAt: Date.now(),
+      marketingConsent: marketingOk,
+      marketingConsentAt: marketingOk ? Date.now() : null
+    };
+    await setDoc(doc(db, 'challenges', cred.user.uid), initState);
+
+    // Save GDPR consent to localStorage
+    localStorage.setItem('gdpr_consent', 'accepted');
+    document.getElementById('gdpr-banner').style.display = 'none';
+
+  } catch(e) {
+    let msg = e.message;
+    if (e.code === 'auth/email-already-in-use') msg = 'Email già registrata.';
+    if (e.code === 'auth/invalid-email') msg = 'Email non valida.';
+    document.getElementById('reg-err').textContent = msg;
+    btn.disabled = false;
+  }
+};
+
+window.doForgot = async function(event) {
+  event.preventDefault();
+  if (!FIREBASE_CONFIGURED) { document.getElementById('forgot-err').textContent = 'Firebase non configurato.'; return; }
+
+  // 1. Captcha check
+  const tokenInput = document.querySelector('#form-forgot [name="cf-turnstile-response"]');
+  const token = tokenInput ? tokenInput.value : null;
+  if (!token) {
+    document.getElementById('forgot-err').textContent = 'Attendi la verifica di sicurezza.';
+    return;
+  }
+
+  try {
+    const captchaRes = await fetch('https://vanillachart-api.vercel.app/api/forgot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turnstileToken: token })
+    });
+    const captchaResult = await captchaRes.json();
+    if (!captchaRes.ok) {
+      document.getElementById('forgot-err').textContent = captchaResult.error || 'Verifica captcha fallita.';
+      return;
+    }
+  } catch(e) {
+    document.getElementById('forgot-err').textContent = 'Errore di connessione al server.';
+    return;
+  }
+
+  // 2. Captcha passed — proceed with Firebase password reset
+  const email = document.getElementById('forgot-email').value.trim();
+  if (!email) { document.getElementById('forgot-err').textContent = 'Inserisci la tua email.'; return; }
+
+  const btn = document.getElementById('forgot-btn');
+  btn.disabled = true;
+  document.getElementById('forgot-err').textContent = '';
+  document.getElementById('forgot-ok').textContent = '';
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+    document.getElementById('forgot-ok').textContent = 'Email inviata! Controlla la tua casella.';
+    document.getElementById('forgot-err').textContent = '';
+  } catch(e) {
+    document.getElementById('forgot-err').textContent = 'Email non trovata o errore.';
+    document.getElementById('forgot-ok').textContent = '';
+  }
+
+  btn.disabled = false;
 };
 
 window.doRegister = async function() {
@@ -315,6 +477,7 @@ window.doForgot = async function() {
 };
 
 window.doLogout = async function() {
+  appInitialized = false; // add this line
   if (unsubscribe) unsubscribe();
   if (unsubJournal) { unsubJournal(); unsubJournal = null; }
   journalEntries = [];
@@ -388,19 +551,12 @@ window.copyLink = function() {
 // ── INIT ──
 async function init() {
   if (!FIREBASE_CONFIGURED) { showAuth(); return; }
-
-  try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    storage = getStorage(app);
-  } catch(e) { showAuth(); return; }
-
   // Check if viewing a shared challenge
   const params = new URLSearchParams(window.location.search);
   const sharedUser = params.get('u');
 
   if (sharedUser) {
+
     // Public read-only view — no auth needed
     try {
       const q = query(collection(db, 'usernames'), where('username', '==', sharedUser.toLowerCase()));
@@ -451,6 +607,7 @@ async function init() {
       showAuth();
     }
   });
+  
 }
 
 // ── TRADING JOURNAL ──
