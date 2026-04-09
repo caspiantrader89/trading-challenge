@@ -2241,40 +2241,41 @@ window._posSLLines = {};
 
 // Chiamato quando renderBitgetPositions popola _positions
 // Crea/aggiorna le linee SL sul grafico per ogni posizione
-window.refreshPosSLLines = function(positions) {
-  // Rimuovi linee precedenti
+window.refreshPosSLLines = function(positions, tpslMap) {
+  // Rimuovi price lines precedenti
   Object.values(window._posSLLines).forEach(l => {
     if (l.priceLine) { try { candleSeries.removePriceLine(l.priceLine); } catch(_){} }
   });
   window._posSLLines = {};
 
+  const map = tpslMap || window._tpslOrdersMap || {};
+
   positions.forEach((p, idx) => {
-    // Bitget manda stopLoss direttamente nel payload posizione
-    const sl = parseFloat(p.stopLoss || p.stopLossPrice || p.presetStopLossPrice || 0);
-    const side = (p.holdSide || 'long').toLowerCase();
+    const side   = (p.holdSide || 'long').toLowerCase();
     const posSym = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi, '').replace(/USDT$/, '');
     const curSym = (S.symbol || '').replace(/USDT$/, '');
 
-    // Crea sempre la entry nel registry (anche senza SL, serve per il drag)
+    // Cerca SL: prima negli ordini TPSL (piu affidabile), poi nel campo grezzo
+    const tpslKey  = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi, '') + '_' + side;
+    const tpslList = map[tpslKey] || [];
+    const slOrder  = tpslList.find(o => o.type === 'sl');
+    const slRaw    = parseFloat(p.stopLoss || p.stopLossPrice || p.presetStopLossPrice || 0);
+    const sl       = slOrder ? slOrder.price : slRaw;
+
     window._posSLLines[idx] = {
       price: sl > 0 ? sl : null,
-      side,
-      symbol: p.symbol,
-      orderId: p.stopLossId || '',
-      idx,
-      priceLine: null,
+      side, symbol: p.symbol,
+      orderId: slOrder ? slOrder.orderId : (p.stopLossId || ''),
+      idx, priceLine: null,
     };
 
-    // Mostra la priceLine solo se il simbolo corrisponde al grafico attivo
+    // Crea priceLine solo se il simbolo corrisponde al grafico attivo
     if (!sl || sl <= 0 || posSym !== curSym) return;
 
     const priceLine = candleSeries.createPriceLine({
-      price: sl,
-      color: '#ff2d4a',
-      lineWidth: 1,
+      price: sl, color: '#ff2d4a', lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: ` SL#${idx+1}`,
+      axisLabelVisible: true, title: ` SL#${idx+1}`,
     });
     window._posSLLines[idx].priceLine = priceLine;
 
@@ -2366,52 +2367,61 @@ window._posTPLines = {};
 
 const TP_COLORS = ['#00d17a', '#00ffcc', '#3dddff'];
 
-window.refreshPosTPLines = function(tpOrders, positions) {
+window.refreshPosTPLines = function(tpOrders, positions, tpslMap) {
   // Rimuovi linee precedenti
   Object.values(window._posTPLines).forEach(l => {
     if (l.priceLine) { try { candleSeries.removePriceLine(l.priceLine); } catch(_){} }
   });
   window._posTPLines = {};
 
-  // Legge takeProfit direttamente dal payload della posizione
-  // Bitget manda un singolo takeProfit per posizione
-  positions.forEach((p, posIdx) => {
-    const tp = parseFloat(p.takeProfit || p.takeProfitPrice || p.presetTakeProfitPrice || 0);
-    if (!tp || tp <= 0) return;
+  const map = tpslMap || window._tpslOrdersMap || {};
 
-    const side = (p.holdSide || 'long').toLowerCase();
-    const color = TP_COLORS[0];
-    const key = `${posIdx}_1`;
+  positions.forEach((p, posIdx) => {
+    const side   = (p.holdSide || 'long').toLowerCase();
     const posSym = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi, '').replace(/USDT$/, '');
     const curSym = (S.symbol || '').replace(/USDT$/, '');
 
-    // Crea il registry entry sempre (serve per modifica TP dal pannello)
-    window._posTPLines[key] = {
-      price: tp,
-      orderId: p.takeProfitId || '',
-      posIdx, tpN: 1, priceLine: null, color,
-      symbol: p.symbol, holdSide: side,
-      size: p.total || p.available || '0',
-    };
+    // Cerca TP: prima negli ordini TPSL, poi nel campo grezzo
+    const tpslKey  = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi, '') + '_' + side;
+    const tpslList = map[tpslKey] || [];
+    const tpOrders2 = tpslList.filter(o => o.type === 'tp').sort((a,b) => a.price - b.price);
+    const tpRaw    = parseFloat(p.takeProfit || p.takeProfitPrice || p.presetTakeProfitPrice || 0);
 
-    // Mostra la priceLine solo se il simbolo corrisponde al grafico attivo
-    if (posSym !== curSym) return;
+    // Se ci sono ordini TP dal map, usa quelli (supporta multipli TP1/TP2/TP3)
+    const tpPrices = tpOrders2.length > 0
+      ? tpOrders2.map(o => o.price)
+      : (tpRaw > 0 ? [tpRaw] : []);
 
-    const priceLine = candleSeries.createPriceLine({
-      price: tp,
-      color,
-      lineWidth: 1,
-      lineStyle: LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: ` TP1#${posIdx+1}`,
+    tpPrices.forEach((tp, tpIdx) => {
+      const tpN  = tpIdx + 1;
+      const color = TP_COLORS[tpIdx] || TP_COLORS[0];
+      const key  = `${posIdx}_${tpN}`;
+      const ord  = tpOrders2[tpIdx];
+
+      window._posTPLines[key] = {
+        price: tp,
+        orderId: ord ? ord.orderId : (p.takeProfitId || ''),
+        posIdx, tpN, priceLine: null, color,
+        symbol: p.symbol, holdSide: side,
+        size: (ord && ord.size) ? String(ord.size) : (p.total || p.available || '0'),
+      };
+
+      // Crea priceLine solo se simbolo corrisponde al grafico attivo
+      if (posSym !== curSym) return;
+
+      const priceLine = candleSeries.createPriceLine({
+        price: tp, color, lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true, title: ` TP${tpN}#${posIdx+1}`,
+      });
+      window._posTPLines[key].priceLine = priceLine;
+
+      const inp = document.getElementById(`pos-tp${tpN}-input-${posIdx}`);
+      if (inp) inp.value = fmtPrice(tp);
+
+      const badge = document.getElementById(`pos-tp${tpN}-badge-${posIdx}`);
+      if (badge) { badge.textContent = '$'+fmtPrice(tp); badge.className = 'pos-tp-badge'; }
     });
-    window._posTPLines[key].priceLine = priceLine;
-
-    const inp = document.getElementById(`pos-tp1-input-${posIdx}`);
-    if (inp) inp.value = fmtPrice(tp);
-
-    const badge = document.getElementById(`pos-tp1-badge-${posIdx}`);
-    if (badge) { badge.textContent = '$'+fmtPrice(tp); badge.className = 'pos-tp-badge'; }
   });
 
   drawCanvas();
@@ -3250,7 +3260,8 @@ function roundRect(cx,x,y,w,h,r){
     }).join('');
     document.getElementById('posCount').textContent = positions.length;
     // Aggiorna le linee SL sul grafico
-    if (window.refreshPosSLLines) window.refreshPosSLLines(positions);
+    if (window.refreshPosSLLines) window.refreshPosSLLines(positions, window._tpslOrdersMap);
+    if (window.refreshPosTPLines) window.refreshPosTPLines([], positions, window._tpslOrdersMap);
     // Avvia il loop realtime PnL
     startRealtimePnl();
   }
@@ -3311,7 +3322,7 @@ function roundRect(cx,x,y,w,h,r){
       });
 
       if (window.refreshPosSLLines) window.refreshPosSLLines(positions, map);
-      if (window.refreshPosTPLines) window.refreshPosTPLines([], positions);
+      if (window.refreshPosTPLines) window.refreshPosTPLines([], positions, map);
     } catch(e) {
       console.warn('[TPSL] error generale:', e.message);
       positions.forEach((p, idx) => updatePosSLTPDisplay(idx, [], p));
