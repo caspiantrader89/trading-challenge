@@ -430,10 +430,6 @@ function drawPosLines() {
     const tp     = parseFloat(p.takeProfit || p.takeProfitPrice || p.presetTakeProfitPrice || 0);
     const sym    = (p.symbol || '').replace(/_?UMCBL|_?DMCBL/g, '').replace('USDT', '');
 
-    // Mostra la posizione solo se il simbolo corrisponde al grafico attivo
-    const currentSym = (S.symbol || '').replace('USDT', '');
-    if (sym !== currentSym) return;
-
     if (!entry || entry <= 0) return;
 
     const entryY = candleSeries.priceToCoordinate(entry);
@@ -456,12 +452,13 @@ function drawPosLines() {
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
 
-    // Label principale CENTRATA: "Long  0.0018 BTC  +11.20 USD"
+    // Label principale LEFT: "Long  0.0018 BTC  +11.20 USD"
     const sideLabel  = isLong ? 'Long' : 'Short';
     const coinStr    = fmt6(size) + ' ' + sym;
     const pnlStr     = (upnl >= 0 ? '+' : '') + fmt(upnl) + ' USD';
 
     const FONT_LABEL = 'bold 11px "DM Mono",monospace';
+    const FONT_PRICE = '10px "DM Mono",monospace';
     ctx.font = FONT_LABEL;
 
     // misure testo
@@ -472,18 +469,11 @@ function drawPosLines() {
 
     const PAD = 8, GAP = 6, H = 22, R = 4;
 
-    // Calcola larghezza totale del gruppo di pill
-    const sidePillW = sideW + PAD * 2;
-    const coinPillW = coinW + PAD * 2;
-    const pnlPillW  = pnlW  + PAD * 2;
-    const totalGroupW = sidePillW + GAP + coinPillW + GAP + pnlPillW;
-
-    // Centra il gruppo sull'asse X della chart
-    const groupStartX = W / 2 - totalGroupW / 2;
-    const pillY       = entryY - H / 2;
-
     // pill Side (sfondo entryColor)
-    const startX = groupStartX;
+    const sidePillW = sideW + PAD * 2;
+    const startX = 0; // attacca al bordo sinistro
+    const pillY  = entryY - H / 2;
+
     ctx.fillStyle = entryColor;
     rrect(ctx, startX, pillY, sidePillW, H, R); ctx.fill();
     ctx.fillStyle = '#fff';
@@ -493,6 +483,7 @@ function drawPosLines() {
     ctx.fillText(sideLabel, startX + PAD, entryY);
 
     // pill Coin (sfondo scuro bordo entryColor)
+    const coinPillW = coinW + PAD * 2;
     const coinX = startX + sidePillW + GAP;
     ctx.fillStyle = 'rgba(20,20,28,0.92)';
     rrect(ctx, coinX, pillY, coinPillW, H, R); ctx.fill();
@@ -504,6 +495,7 @@ function drawPosLines() {
     ctx.fillText(coinStr, coinX + PAD, entryY);
 
     // pill PnL (sfondo scuro bordo pnlColor)
+    const pnlPillW = pnlW + PAD * 2;
     const pnlX = coinX + coinPillW + GAP;
     ctx.fillStyle = 'rgba(20,20,28,0.92)';
     rrect(ctx, pnlX, pillY, pnlPillW, H, R); ctx.fill();
@@ -512,6 +504,29 @@ function drawPosLines() {
     ctx.stroke();
     ctx.fillStyle = pnlColor;
     ctx.fillText(pnlStr, pnlX + PAD, entryY);
+
+    // Bottoni TP e SL — a destra, con separatore
+    const btnH = H, btnW = 28, btnGap = 3;
+    const tpX = W - 6 - btnW * 2 - btnGap - 2;
+    const slX = tpX + btnW + btnGap;
+
+    // TP button
+    ctx.fillStyle = '#00b96b';
+    rrect(ctx, tpX, pillY, btnW, btnH, R); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px "DM Mono",monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('TP', tpX + btnW / 2, entryY);
+
+    // SL button
+    ctx.fillStyle = '#f7525f';
+    rrect(ctx, slX, pillY, btnW, btnH, R); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillText('SL', slX + btnW / 2, entryY);
+
+    // Registra zone click TP/SL
+    window._posLineZones[`tp_btn_${idx}`]   = { x: tpX, y: pillY, w: btnW, h: btnH, idx, action:'tp' };
+    window._posLineZones[`sl_btn_${idx}`]   = { x: slX, y: pillY, w: btnW, h: btnH, idx, action:'sl' };
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
@@ -1006,12 +1021,6 @@ async function loadCandles(symbol,tf){
     loadDemo(symbol,tf);
   }
   onPriceUpdate();
-  // Ricarica linee SL/TP/posizioni filtrate per il simbolo appena caricato
-  if (window._positions && window._positions.length) {
-    if (window.refreshPosSLLines) window.refreshPosSLLines(window._positions);
-    if (window.refreshPosTPLines) window.refreshPosTPLines([], window._positions);
-    drawCanvas();
-  }
 }
 
 function startTick(symbol){
@@ -1118,10 +1127,6 @@ function startRealtimePnl() {
       const marginEl   = document.getElementById('pos-margin-' + idx);
       const notionalEl = document.getElementById('pos-notional-' + idx);
 
-      // Aggiorna upnl nella struttura dati per drawCanvas (overlay chart realtime)
-      p.unrealizedPL = upnl;
-      p.markPrice = markPx;
-
       if (pnlEl) {
         pnlEl.className = 'pnl ' + (upnl >= 0 ? 'pos' : 'neg');
         pnlEl.innerHTML = `${upnl>=0?'+':'-'}$${fmt(Math.abs(upnl))} <span style="font-size:9px;opacity:.7">(${roe>=0?'+':''}${roe.toFixed(2)}%)</span>`;
@@ -1145,8 +1150,6 @@ function startRealtimePnl() {
       pEl.textContent = (totalUnrealizedPnl>=0?'+':'-')+'$'+fmt(Math.abs(totalUnrealizedPnl));
       pEl.className = 'av ' + (totalUnrealizedPnl>=0?'pos':'neg');
     }
-    // Ridisegna overlay chart con PnL aggiornato in tempo reale
-    drawCanvas();
   }, 500);
 }
 
@@ -2119,8 +2122,6 @@ window.refreshPosSLLines = function(positions) {
     // Bitget manda stopLoss direttamente nel payload posizione
     const sl = parseFloat(p.stopLoss || p.stopLossPrice || p.presetStopLossPrice || 0);
     const side = (p.holdSide || 'long').toLowerCase();
-    const posSym = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi, '').replace(/USDT$/, '');
-    const curSym = (S.symbol || '').replace(/USDT$/, '');
 
     // Crea sempre la entry nel registry (anche senza SL, serve per il drag)
     window._posSLLines[idx] = {
@@ -2132,8 +2133,7 @@ window.refreshPosSLLines = function(positions) {
       priceLine: null,
     };
 
-    // Mostra la priceLine solo se il simbolo corrisponde al grafico attivo
-    if (!sl || sl <= 0 || posSym !== curSym) return;
+    if (!sl || sl <= 0) return;
 
     const priceLine = candleSeries.createPriceLine({
       price: sl,
@@ -2201,20 +2201,6 @@ window.refreshPosTPLines = function(tpOrders, positions) {
     const side = (p.holdSide || 'long').toLowerCase();
     const color = TP_COLORS[0];
     const key = `${posIdx}_1`;
-    const posSym = (p.symbol || '').replace(/_?(UMCBL|DMCBL)/gi, '').replace(/USDT$/, '');
-    const curSym = (S.symbol || '').replace(/USDT$/, '');
-
-    // Crea il registry entry sempre (serve per modifica TP dal pannello)
-    window._posTPLines[key] = {
-      price: tp,
-      orderId: p.takeProfitId || '',
-      posIdx, tpN: 1, priceLine: null, color,
-      symbol: p.symbol, holdSide: side,
-      size: p.total || p.available || '0',
-    };
-
-    // Mostra la priceLine solo se il simbolo corrisponde al grafico attivo
-    if (posSym !== curSym) return;
 
     const priceLine = candleSeries.createPriceLine({
       price: tp,
@@ -2224,7 +2210,14 @@ window.refreshPosTPLines = function(tpOrders, positions) {
       axisLabelVisible: true,
       title: ` TP1#${posIdx+1}`,
     });
-    window._posTPLines[key].priceLine = priceLine;
+
+    window._posTPLines[key] = {
+      price: tp,
+      orderId: p.takeProfitId || '',
+      posIdx, tpN: 1, priceLine, color,
+      symbol: p.symbol, holdSide: side,
+      size: p.total || p.available || '0',
+    };
 
     const inp = document.getElementById(`pos-tp1-input-${posIdx}`);
     if (inp) inp.value = fmtPrice(tp);
