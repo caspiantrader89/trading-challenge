@@ -1,6 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, where, getDocs, updateDoc, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
 
 // Your web app's Firebase configuration
@@ -343,8 +343,14 @@ window.doRegister = async function(event) {
 
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
 
-    // Save username → email mapping
-    await setDoc(doc(db, 'usernames', user), { username: user, email: email, uid: cred.user.uid });
+    // Save username → email mapping + MARKETING CONSENT
+    await setDoc(doc(db, 'usernames', user), { 
+      username: user, 
+      email: email, 
+      uid: cred.user.uid,
+      hasConsent: marketingOk, 
+      consentTimestamp: marketingOk ? serverTimestamp() : null
+    });
 
     // Create initial challenge data
     const initState = {
@@ -417,7 +423,7 @@ window.doForgot = async function(event) {
 
   btn.disabled = false;
 };
-
+/*
 window.doRegister = async function() {
   if (!FIREBASE_CONFIGURED) { document.getElementById('reg-err').textContent = 'Firebase non configurato — vedi istruzioni.'; return; }
   const user = document.getElementById('reg-user').value.trim().toLowerCase();
@@ -457,7 +463,7 @@ window.doRegister = async function() {
     document.getElementById('reg-err').textContent = msg;
     btn.disabled = false;
   }
-};
+};*/
 
 window.doForgot = async function() {
   if (!FIREBASE_CONFIGURED) { document.getElementById('forgot-err').textContent = 'Firebase non configurato.'; return; }
@@ -1487,12 +1493,62 @@ window.openProfile = async function() {
     if (img) img.style.display = 'none';
     if (emoji) emoji.style.display = 'block';
   }
+  // Checkbox del consenso commerciale
+  const consentCheckbox = document.getElementById('profile-commercial-checkbox');
+  if (consentCheckbox) {
+    consentCheckbox.checked = userProfile.hasConsent === true;
+  }
   // Reset password fields
   ['profile-cur-pass','profile-new-pass','profile-confirm-pass'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('profile-pass-msg').textContent = '';
   document.getElementById('profile-overlay').classList.remove('hidden');
+  const delInput = document.getElementById('profile-delete-password');
+  if (delInput) delInput.value = '';
+  window.checkDeletePasswordInput('');
+};
+
+let consentDebounceTimer; // timer anti-spam
+
+window.handleCommercialConsent = async function(isGranted) {
+  if (!currentUser) return;
+
+  const currentUsername = typeof currentState !== 'undefined' && currentState?.username 
+                          ? currentState.username 
+                          : userProfile.username;
+
+  if (!currentUsername) {
+      console.error("Impossibile trovare l'username. Consenso non salvato.");
+      return;
+  }
+
+  clearTimeout(consentDebounceTimer);
+
+  consentDebounceTimer = setTimeout(async () => {
+    try {
+      const userRef = doc(db, 'usernames', currentUsername); 
+      
+      await updateDoc(userRef, {
+        hasConsent: isGranted,
+        consentTimestamp: serverTimestamp()
+      });
+      
+      console.log("Consenso salvato nel DB per:", currentUsername, "->", isGranted);
+      
+      userProfile.hasConsent = isGranted; 
+      
+    } catch (error) {
+      console.error("Errore durante l'aggiornamento del consenso:", error);
+      
+      // se il salvataggio fallisce, riporta il checkbox allo stato precedente
+      const checkbox = document.getElementById('profile-commercial-checkbox');
+      if (checkbox) {
+        checkbox.checked = !isGranted; 
+      }
+      alert("Si è verificato un errore durante il salvataggio delle preferenze.");
+    }
+  }, 1000); 
 };
 
 window.closeProfile = function() {
@@ -1645,6 +1701,102 @@ function checkGDPR() {
   }
 }
 checkGDPR();
+
+// 1. Controlla l'input in tempo reale
+window.checkDeleteInput = function(val) {
+  const btn = document.getElementById('profile-delete-btn');
+  if (btn) {
+    if (val === 'ELIMINA') {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+    }
+  }
+};
+
+// 1. Abilita il bottone non appena l'utente digita qualcosa nella password
+window.checkDeletePasswordInput = function(val) {
+  const btn = document.getElementById('profile-delete-btn');
+  if (btn) {
+    if (val.length > 0) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+    }
+  }
+};
+
+// 2. Esegui l'eliminazione con verifica password
+window.deleteUserAccount = async function() {
+  if (!currentUser) return;
+  
+  const passInput = document.getElementById('profile-delete-password').value;
+  const msgEl = document.getElementById('profile-delete-msg');
+  const btn = document.getElementById('profile-delete-btn');
+  
+  if (!passInput) {
+    msgEl.textContent = 'Inserisci la password per continuare.';
+    msgEl.style.color = 'var(--loss)';
+    return;
+  }
+
+  const confirmDialog = confirm("Sei sicuro al 100%? Questa azione è irreversibile.");
+  if (!confirmDialog) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Verifica in corso...';
+  msgEl.textContent = '';
+
+  try {
+    // A. RI-AUTENTICA L'UTENTE (Questo previene l'errore "requires-recent-login")
+    const credential = EmailAuthProvider.credential(currentUser.email, passInput);
+    await reauthenticateWithCredential(currentUser, credential);
+
+    btn.textContent = 'Eliminazione dati...';
+
+    // B. Recupera l'username
+    const currentUsername = typeof currentState !== 'undefined' && currentState?.username 
+                          ? currentState.username 
+                          : userProfile.username;
+
+    // C. Cancella i dati dal Database
+    if (currentUsername) {
+      await deleteDoc(doc(db, 'usernames', currentUsername));
+    }
+    await deleteDoc(doc(db, 'profiles', currentUser.uid));
+    await deleteDoc(doc(db, 'challenges', currentUser.uid));
+
+    // D. Elimina l'utente da Firebase Auth
+    await deleteUser(currentUser);
+
+    alert("Account e dati eliminati con successo. Ci dispiace vederti andare!");
+    window.location.reload(); 
+
+  } catch (error) {
+    console.error("Errore eliminazione:", error);
+    
+    // Gestione errori della password
+    if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+      msgEl.textContent = "Password errata. Riprova.";
+    } else if (error.code === 'auth/too-many-requests') {
+      msgEl.textContent = "Troppi tentativi falliti. Riprova più tardi.";
+    } else {
+      msgEl.textContent = "Errore: " + error.message;
+    }
+    
+    msgEl.style.color = "var(--loss)";
+    btn.disabled = false;
+    btn.textContent = 'Elimina Account';
+  }
+};
 
 // ── RISK CALCULATOR ──
 let calcMarket = 'crypto';

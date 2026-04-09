@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Trading Challenge — $100 → $100k</title>
+    <link rel="icon" type="image/x-icon" href="/MEDIA/favicon.ico">
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="CSS/index.css">
   </head>
@@ -98,7 +99,7 @@
           <h3>10. I tuoi diritti (GDPR)</h3>
           <p>Hai diritto a: accedere ai tuoi dati, rettificarli, cancellarli (diritto all'oblio), limitarne il trattamento, opporti al trattamento, richiederne la portabilità. Per esercitare questi diritti contattaci tramite i canali social.</p>
           <h3>11. Aggiornamenti</h3>
-          <p>Questa policy può essere aggiornata. Ti informeremo di eventuali modifiche sostanziali tramite la piattaforma. Ultimo aggiornamento: <strong>2025</strong>. </p>
+          <p>Questa policy può essere aggiornata. Ti informeremo di eventuali modifiche sostanziali tramite la piattaforma. Ultimo aggiornamento: <strong>2026</strong>. </p>
         </div>
       </div>
     </div>
@@ -135,8 +136,8 @@
             <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" required />
           </div>
           <div class="cf-turnstile" data-sitekey="0x4AAAAAAC2YJouQMhGAfdo0" data-theme="light" data-response-field-name="cf-turnstile-response"></div>
-          <div class="auth-err" id="login-err"></div>
           <button type="submit" class="auth-btn" id="login-btn">Accedi</button>
+          <div class="auth-err" id="login-err"></div>
         </form>
         <!-- SIGN UP SCREEN -->
         <form class="auth-form hidden" id="form-register" onsubmit="doRegister(event)">
@@ -162,8 +163,8 @@
             <label for="reg-marketing">Acconsento a ricevere comunicazioni di marketing via email da VanillaChart (aggiornamenti, contenuti e offerte). Puoi revocare il consenso in qualsiasi momento.</label>
           </div>
           <div class="cf-turnstile" data-sitekey="0x4AAAAAAC2YJouQMhGAfdo0" data-theme="light" data-response-field-name="cf-turnstile-response"></div>
-          <div class="auth-err" id="reg-err"></div>
           <button type="submit" class="auth-btn" id="reg-btn">Crea account</button>
+          <div class="auth-err" id="reg-err"></div>
         </form>
         <!-- FORGOT PASSWORD -->
         <form class="auth-form hidden" id="form-forgot" onsubmit="doForgot(event)">
@@ -172,11 +173,11 @@
             <input type="email" id="forgot-email" placeholder="tua@email.com" required />
           </div>
           <div class="cf-turnstile" data-sitekey="0x4AAAAAAC2YJouQMhGAfdo0" data-theme="light" data-response-field-name="cf-turnstile-response"></div>
+          <button type="submit" class="auth-btn" id="forgot-btn">Invia link di recupero</button>
           <div class="auth-err" id="forgot-err"></div>
           <div class="auth-ok" id="forgot-ok"></div>
-          <button type="submit" class="auth-btn" id="forgot-btn">Invia link di recupero</button>
         </form>
-        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;">
           <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center">
             <a href="https://x.com/vanillachart" target="_blank" style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:10px;background:var(--surface);border:1px solid var(--border);text-decoration:none;transition:all 0.2s" title="X">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="#666">
@@ -206,12 +207,12 @@
           </div>
           <a href="https://www.mexc.com/it-IT/register?inviteCode=mexc-12SCRq" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 20px;border-radius:10px;background:var(--surface);border:1px solid var(--border);text-decoration:none;color:var(--text-muted);font-size:11px;letter-spacing:0.05em;transition:all 0.2s">
             <span style="width:8px;height:8px;border-radius:50%;background:#00d4aa;flex-shrink:0"></span> Bitget — Futures Trading </a>
-          <div style="display:flex;gap:12px;align-items:center;justify-content:center">
+          <div style="display:flex;gap:12px;align-items:center;justify-content:center; padding-top:10px; text-align:center">
             <a onclick="openPrivacy()" style="font-size:10px;color:var(--text-dim);text-decoration:underline;cursor:pointer;letter-spacing:0.05em">🔒 Privacy Policy</a>
             <span style="font-size:10px;color:var(--text-dim)">·</span>
             <a onclick="openCookieSettings()" style="font-size:10px;color:var(--text-dim);text-decoration:underline;cursor:pointer;letter-spacing:0.05em">🍪 Cookie</a>
             <span style="font-size:10px;color:var(--text-dim)">·</span>
-            <span style="font-size:10px;color:var(--text-dim)">© 2025 VanillaChart</span>
+            <span style="font-size:10px;color:var(--text-dim)">© 2026 VanillaChart</span>
           </div>
         </div>
       </div>
@@ -283,6 +284,19 @@
                 <button class="profile-save-btn" id="profile-pass-btn" onclick="changePassword()">Aggiorna password</button>
               </div>
             </div>
+            <div style="margin-top: 24px;">
+              <div class="profile-section-title">Preferenze di Comunicazione</div>
+              <div style="display:flex;flex-direction:column;gap:12px; margin-top: 8px;">
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); padding: 12px; border-radius: 6px;">
+                  <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 12px; font-weight: bold; color: var(--text);">Comunicazioni Commerciali</label>
+                    <span style="font-size: 11px; color: var(--text-muted);">Acconsento a ricevere email promozionali, sconti e newsletter.</span>
+                  </div>
+                  <input type="checkbox" id="profile-commercial-checkbox" style="width: 18px; height: 18px; cursor: pointer;" onchange="handleCommercialConsent(this.checked)" />
+                </div>
+              </div>
+            </div>
             <!-- BITGET API -->
             <div class="bitget-api-section">
               <div class="bitget-api-title">
@@ -325,8 +339,26 @@
                 <a href="https://www.bitget.com/account/newapi" target="_blank">→ Crea API Key su Bitget</a>
               </div>
             </div>
-          </div>
+            <div style="margin-top: 32px; border-top: 1px solid var(--border); padding-top: 24px;">
+              <div class="profile-section-title" style="color: var(--loss);">Zona Pericolosa</div>
+              <div style="display:flex;flex-direction:column;gap:12px; margin-top: 8px;">
+                <p style="font-size: 11px; color: var(--text-muted); margin: 0;">
+                  L'eliminazione dell'account è irreversibile. Tutti i tuoi dati verranno cancellati per sempre dal server. Inserisci la tua password per confermare.
+                </p>
+                
+                <div class="field-group">
+                  <label>Password Attuale</label>
+                  <input type="password" id="profile-delete-password" placeholder="La tua password" oninput="checkDeletePasswordInput(this.value)" autocomplete="current-password" />
+                </div>
+                
+                <button type="button" class="auth-btn" id="profile-delete-btn" disabled style="background: var(--loss); color: #fff; margin-top: 4px; opacity: 0.5;" onclick="deleteUserAccount()">
+                  Elimina Account
+                </button>
+                <div id="profile-delete-msg" class="profile-msg"></div>
+              </div>
+            </div>
         </div>
+          </div>
       </div>
       <!-- TRADING JOURNAL MODAL -->
       <div id="journal-overlay" class="hidden">
@@ -1076,7 +1108,7 @@
               <span style="color:var(--text-dim);font-size:11px">·</span>
               <span class="dash-footer-link" onclick="openCookieSettings()">🍪 Cookie</span>
             </div>
-            <div class="dash-footer-copy">© 2025 VanillaChart — All rights reserved</div>
+            <div class="dash-footer-copy">© 2026 VanillaChart — All rights reserved</div>
           </footer>
         </div>
       </div>
