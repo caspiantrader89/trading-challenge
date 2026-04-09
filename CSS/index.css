@@ -13,8 +13,14 @@
   --accent: #5b8cf7; --accent-bg: rgba(91,140,247,0.08); --accent-border: rgba(91,140,247,0.25);
   --mono: 'DM Mono', monospace; --display: 'Syne', sans-serif;
 }
+
+::-webkit-scrollbar { height: 10px; width: 10px; }
+::-webkit-scrollbar-track { background: #111111; }
+::-webkit-scrollbar-thumb { background: #555; border-radius: 10px; border: 2px solid #111111; }
+::-webkit-scrollbar-thumb:hover { background: #777; }
+
 html { font-size: 16px; }
-body { background: var(--bg); color: var(--text); font-family: var(--mono); min-height: 100vh; scrollbar-color: #111111 #111111; scrollbar-width: thin; }
+body { background: var(--bg); color: var(--text); font-family: var(--mono); min-height: 100vh;}
 
 /* ── AUTH SCREEN ── */
 #auth-screen {
@@ -235,7 +241,7 @@ header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bo
 
 /* ── JOURNAL MODAL ── */
 #journal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  position: fixed; inset: 0; background: rgba(0,0,0,1);
   display: flex; align-items: flex-start; justify-content: center;
   z-index: 300; padding: 1rem; overflow-y: auto;
 }
@@ -293,32 +299,73 @@ header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bo
 .jbtn-save:hover { opacity: 0.85; }
 
 /* journal table */
+/* journal table */
 .journal-table-wrap { overflow-x: auto; }
-.journal-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.journal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+/* Intestazioni più eleganti */
 .journal-table th {
-  text-align: left; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--border);
-  font-weight: 400; white-space: nowrap;
+  text-align: left; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted); padding: 12px 10px; border-bottom: 1px solid var(--border);
+  font-weight: 600; white-space: nowrap;
 }
-.journal-table td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+
+/* Celle più spaziose e hover fluido */
+.journal-table td { padding: 14px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; transition: background 0.2s; }
 .journal-table tr:last-child td { border-bottom: none; }
 .journal-table tr:hover td { background: rgba(255,255,255,0.02); }
-.jt-dir { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500; }
-.jt-dir.long { background: var(--win-bg); color: var(--win); }
-.jt-dir.short { background: var(--loss-bg); color: var(--loss); }
-.jt-outcome { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500; }
-.jt-outcome.win { background: var(--win-bg); color: var(--win); }
-.jt-outcome.loss { background: var(--loss-bg); color: var(--loss); }
-.jt-outcome.be { background: var(--accent-bg); color: var(--accent); }
+
+/* Badges Unificati (Sostituiscono i vecchi jt-dir e jt-outcome) */
+.jt-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.jt-badge.long { background: var(--win-bg); color: var(--win); }
+.jt-badge.short { background: var(--loss-bg); color: var(--loss); }
+.jt-badge.win { background: var(--win-bg); color: var(--win); }
+.jt-badge.loss { background: var(--loss-bg); color: var(--loss); }
+.jt-badge.be { background: var(--accent-bg); color: var(--accent); }
+
 .jt-pnl { font-family: var(--display); font-weight: 700; }
 .jt-pnl.pos { color: var(--win); }
 .jt-pnl.neg { color: var(--loss); }
-.jt-del { background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px; transition: all 0.2s; }
-.jt-del:hover { color: var(--loss); background: var(--loss-bg); }
+
+/* Nuovi Bottoni Azione SVG (Modifica/Elimina/Foto) */
+.jt-action-btn { 
+  display: inline-flex; align-items: center; justify-content: center; 
+  width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent; 
+  background: transparent; cursor: pointer; transition: all 0.2s; color: var(--text-muted); 
+}
+.jt-action-btn:hover { background: var(--surface2); border-color: var(--border); color: var(--text); }
+.jt-action-btn.edit:hover { color: #3498db; }
+.jt-action-btn.delete:hover { color: var(--loss); }
 
 /* journal leaderboard */
 .journal-lb { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; }
 .journal-lb-title { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
+
+/* ── CUSTOM SCROLLBAR PER LA TABELLA ── */
+
+/* 1. Dimensioni della barra (height per l'orizzontale, width per la verticale) */
+.journal-table-wrap::-webkit-scrollbar {
+  height: 10px; 
+}
+
+/* 2. Il "Binario" di sfondo (Track) */
+.journal-table-wrap::-webkit-scrollbar-track {
+  background: #111111; /* Il colore scuro di sfondo */
+  border-radius: 10px; /* Arrotonda i bordi del binario */
+  margin: 0 10px;      /* Opzionale: stacca un po' la barra dai bordi del contenitore */
+}
+
+/* 3. La barra vera e propria che si muove (Thumb) */
+.journal-table-wrap::-webkit-scrollbar-thumb {
+  background: #555; /* Grigio medio, SEMPRE VISIBILE anche senza hover */
+  border-radius: 10px; /* Forma a pillola */
+  border: 2px solid #111111; /* Trucco pro: aggiunge un bordo dello stesso colore del track per far sembrare il pollice più sottile e dargli "respiro" */
+}
+
+/* 4. Effetto Hover (quando ci passi sopra col mouse) */
+.journal-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #777; /* Diventa leggermente più chiara */
+}
 
 /* TP toggles */
 .tp-toggle {

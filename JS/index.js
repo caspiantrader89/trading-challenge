@@ -837,7 +837,8 @@ window.closeEditJournal = function() {
 
 window.saveEditJournal = async function() {
   if (!currentUser) return;
-  const id = parseInt(document.getElementById('ej-id').value);
+  // Forza la conversione in numero così Firebase lo riconosce!
+  const id = Number(document.getElementById('ej-id').value);
   const msg = document.getElementById('ej-msg');
   msg.textContent = 'Salvataggio...'; msg.style.color = 'var(--text-muted)';
 
@@ -1049,7 +1050,7 @@ function drawPieChart(wins, losses, bes) {
   document.getElementById('journal-pie-legend').textContent=leg.join('  ');
 }
 
-function renderJournal() {
+window.renderJournal = function() {
   const entries=journalEntries, total=entries.length;
   const wins=entries.filter(e=>e.outcome==='win').length;
   const losses=entries.filter(e=>e.outcome==='loss').length;
@@ -1069,30 +1070,95 @@ function renderJournal() {
   pnlEl.className='jval '+(totalPnl>=0?'pos':'neg');
   document.getElementById('jst-best').textContent=best!==null?fmtPnl(best):'—';
   document.getElementById('jst-rr').textContent=avgRR?avgRR+':1':'—';
-  drawPieChart(wins,losses,bes);
-  renderJournalAdvStats(entries);
+  if(typeof drawPieChart === 'function') drawPieChart(wins,losses,bes);
+  if(typeof renderJournalAdvStats === 'function') renderJournalAdvStats(entries);
 
   const setupMap={};
   entries.forEach(e=>{ if(!e.setup) return; if(!setupMap[e.setup]) setupMap[e.setup]={wins:0,total:0,pnl:0}; setupMap[e.setup].total++; if(e.outcome==='win') setupMap[e.setup].wins++; setupMap[e.setup].pnl+=e.pnl; });
   const setups=Object.entries(setupMap).sort((a,b)=>b[1].pnl-a[1].pnl);
   const lbEl=document.getElementById('journal-setup-lb');
-  lbEl.innerHTML=setups.length===0?'<div class="empty" style="padding:1rem">Aggiungi trade con un setup per vedere la classifica.</div>':setups.map(([name,s],i)=>{
+  if(lbEl) lbEl.innerHTML=setups.length===0?'<div class="empty" style="padding:1rem">Aggiungi trade con un setup per vedere la classifica.</div>':setups.map(([name,s],i)=>{
     const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1);
     const wr=Math.round(s.wins/s.total*100); const pc=s.pnl>=0?'var(--win)':'var(--loss)';
     return `<div style="display:grid;grid-template-columns:32px 1fr auto auto;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)"><span style="font-size:14px;text-align:center">${medal}</span><span style="font-size:13px;font-weight:500">${name}</span><span style="font-size:11px;color:var(--text-muted)">${s.total} trade · ${wr}% WR</span><span style="font-family:var(--display);font-weight:700;font-size:14px;color:${pc}">${fmtPnl(s.pnl)}</span></div>`;
   }).join('');
 
   const tbody=document.getElementById('journal-tbody'); const emptyMsg=document.getElementById('journal-empty');
-  if(!entries.length){ tbody.innerHTML=''; emptyMsg.style.display='block'; return; }
-  emptyMsg.style.display='none';
+  if(!tbody) return;
+  if(!entries.length){ tbody.innerHTML=''; if(emptyMsg) emptyMsg.style.display='block'; return; }
+  if(emptyMsg) emptyMsg.style.display='none';
   tbody.innerHTML=entries.map((e,i)=>{
-    const dl=e.dir==='long'?'Long':'Short'; const dc=e.dir==='long'?'long':'short';
-    const ol=e.outcome==='win'?'Win':e.outcome==='loss'?'Loss':'BE';
-    const nt=e.notes?(e.notes.length>35?e.notes.substring(0,35)+'…':e.notes):'—';
-    const tpB=e.tps&&e.tps.length>0?e.tps.map((_,ti)=>`<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:var(--phase2-bg);color:var(--phase2);margin-left:3px">TP${ti+1}</span>`).join(''):'';
-    return `<tr><td style="color:var(--text-dim);font-size:11px">${entries.length-i}</td><td style="color:var(--text-muted);white-space:nowrap">${e.date}</td><td style="font-weight:500">${e.symbol}${tpB}</td><td><span class="jt-dir ${dc}">${dl}</span></td><td><span class="jt-outcome ${e.outcome}">${ol}</span></td><td><span class="jt-pnl ${e.pnl>=0?'pos':'neg'}">${fmtPnl(e.pnl)}</span></td><td style="color:var(--text-muted)">${e.rr?e.rr+':1':'—'}</td><td style="color:var(--text-muted);font-size:11px;white-space:nowrap">${e.entryPrice??'—'} / ${e.exitPrice??'—'}</td><td style="color:var(--text-muted);font-size:12px">${e.setup||'—'}</td><td style="color:var(--text-muted);font-size:11px">${e.tf||'—'}</td><td style="color:var(--text-muted);font-size:11px;max-width:120px" title="${e.notes||''}">${nt}</td><td>${e.screenshot?`<img src="${e.screenshot}" style="width:48px;height:36px;object-fit:cover;border-radius:3px;cursor:pointer" onclick="showScreenshotModal(\`${e.screenshot}\`)" title="Vedi screenshot"/>`:'—'}</td><td style="display:flex;gap:4px"><button class="jt-del" onclick="editJournalEntry(${e.id})" title="Modifica" style="background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)">✎</button><button class="jt-del" onclick="deleteJournalEntry(${e.id})" title="Elimina">✕</button></td></tr>`;
+    // 1. Etichette di testo
+    const dl = e.dir === 'long' ? 'Long' : 'Short';
+    const ol = e.outcome === 'win' ? 'Win' : e.outcome === 'loss' ? 'Loss' : 'BE';
+    const nt = e.notes ? (e.notes.length > 25 ? e.notes.substring(0, 25) + '…' : e.notes) : '—';
+
+    // 2. Colori dinamici (Inline per evitare conflitti CSS)
+    const dirBg = e.dir === 'long' ? 'rgba(46, 204, 113, 0.15)' : 'rgba(231, 76, 60, 0.15)';
+    const dirCol = e.dir === 'long' ? '#2ecc71' : '#e74c3c';
+    
+    let outBg = 'rgba(149, 165, 166, 0.15)', outCol = '#95a5a6';
+    if(e.outcome === 'win') { outBg = 'rgba(46, 204, 113, 0.15)'; outCol = '#2ecc71'; }
+    if(e.outcome === 'loss') { outBg = 'rgba(231, 76, 60, 0.15)'; outCol = '#e74c3c'; }
+
+    const pnlColor = e.pnl >= 0 ? 'var(--win)' : 'var(--loss)';
+
+    // 3. Icone SVG Pulite
+    const iconImg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+    const iconEdit = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+    const iconDel = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+
+    return `
+      <tr>
+        <td style="color:var(--text-dim); font-size:11px;">${entries.length - i}</td>
+        <td style="color:var(--text-muted); white-space:nowrap;">${e.date || '—'}</td>
+        <td style="font-weight:600;">${e.symbol}</td>
+        
+        <td><span style="background:${dirBg}; color:${dirCol}; padding:4px 8px; border-radius:4px; font-size:10px; font-weight:bold; text-transform:uppercase;">${dl}</span></td>
+        <td><span style="background:${outBg}; color:${outCol}; padding:4px 8px; border-radius:4px; font-size:10px; font-weight:bold; text-transform:uppercase;">${ol}</span></td>
+        
+        <td style="color:${pnlColor}; font-weight:700; font-family:var(--display);">
+          ${fmtPnl(e.pnl)}
+        </td>
+        
+        <td style="color:var(--text-muted);">${e.rr ? e.rr + ':1' : '—'}</td>
+        <td style="color:var(--text-muted); font-size:11px; white-space:nowrap;">
+          ${e.entryPrice ?? '—'} <span style="opacity:0.3">/</span> ${e.exitPrice ?? '—'}
+        </td>
+        <td style="color:var(--text-muted); font-size:12px;">${e.setup || '—'}</td>
+        <td style="color:var(--text-muted); font-size:11px;">${e.tf || '—'}</td>
+        <td style="color:var(--text-muted); font-size:12px;" title="${e.notes || ''}">${nt}</td>
+        
+        <td style="text-align: center;">
+          ${e.screenshot 
+            ? `<img src="${e.screenshot}" onclick="showScreenshotModal('${e.screenshot}')" 
+                style="width: 40px; height: 28px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); transition: 0.2s;" 
+                onmouseover="this.style.borderColor='var(--text-muted)'; this.style.opacity='0.8'" 
+                onmouseout="this.style.borderColor='var(--border)'; this.style.opacity='1'" 
+                title="Clicca per ingrandire" alt="Screenshot" />` 
+            : '<span style="color:var(--border);">—</span>'}
+        </td>
+        
+        <td style="text-align: right; white-space: nowrap;">
+          <div style="display:flex; gap:6px; justify-content:flex-end;">
+            <button onclick="editJournalEntry(${e.id})" title="Modifica"
+              style="background:transparent; border:1px solid var(--border); color:var(--text-muted); border-radius:6px; width:28px; height:28px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:0.2s;" 
+              onmouseover="this.style.color='#3498db'; this.style.borderColor='#3498db'" 
+              onmouseout="this.style.color='var(--text-muted)'; this.style.borderColor='var(--border)'">
+              ${iconEdit}
+            </button>
+            <button onclick="deleteJournalEntry(${e.id})" title="Elimina"
+              style="background:transparent; border:1px solid var(--border); color:var(--text-muted); border-radius:6px; width:28px; height:28px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:0.2s;" 
+              onmouseover="this.style.color='#e74c3c'; this.style.borderColor='#e74c3c'" 
+              onmouseout="this.style.color='var(--text-muted)'; this.style.borderColor='var(--border)'">
+              ${iconDel}
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
   }).join('');
-}
+};
 
 
 // ── MOOD HELPERS ──
@@ -1756,7 +1822,6 @@ window.deleteUserAccount = async function() {
   msgEl.textContent = '';
 
   try {
-    // A. RI-AUTENTICA L'UTENTE (Questo previene l'errore "requires-recent-login")
     const credential = EmailAuthProvider.credential(currentUser.email, passInput);
     await reauthenticateWithCredential(currentUser, credential);
 
@@ -1773,6 +1838,7 @@ window.deleteUserAccount = async function() {
     }
     await deleteDoc(doc(db, 'profiles', currentUser.uid));
     await deleteDoc(doc(db, 'challenges', currentUser.uid));
+    await deleteDoc(doc(db, 'journals', currentUser.uid));
 
     // D. Elimina l'utente da Firebase Auth
     await deleteUser(currentUser);
