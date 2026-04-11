@@ -3380,25 +3380,24 @@ function roundRect(cx,x,y,w,h,r){
     for (const p of _positions) {
       const side = (p.holdSide||'long').toLowerCase();
       try {
-    if (isBybit) {
-  try {
-    await bybitRequest('/v5/order/cancel-all-orders', {}, {
-      method: 'POST',
-      body: JSON.stringify({category:'linear', symbol:p.symbol}),
-    });
-  } catch(e) { /* ignora errori cancel-all, potrebbe non avere ordini */ }
-  await bybitRequest('/v5/order/create', {}, {
-    method: 'POST',
-    body: JSON.stringify({
-      category: 'linear',
-      symbol:   p.symbol,
-      side:     side === 'long' ? 'Sell' : 'Buy',
-      orderType:'Market',
-      qty:      String(parseFloat(p.size||p.total||0)),
-      reduceOnly: true,
-    }),
-  });
-}
+        if (isBybit) {
+          try {
+            await bybitRequest('/v5/order/cancel-all-orders', {}, {
+              method: 'POST',
+              body: JSON.stringify({category:'linear', symbol:p.symbol}),
+            });
+          } catch(e) { /* ignora errori cancel-all, potrebbe non avere ordini */ }
+          await bybitRequest('/v5/order/create', {}, {
+            method: 'POST',
+            body: JSON.stringify({
+              category: 'linear',
+              symbol:   p.symbol,
+              side:     side === 'long' ? 'Sell' : 'Buy',
+              orderType:'Market',
+              qty:      String(parseFloat(p.size||p.total||0)),
+              reduceOnly: true,
+            }),
+          });
         } else {
           await bitgetRequest('/api/v2/mix/order/close-positions', {}, {
             method: 'POST',
