@@ -91,7 +91,7 @@ async function fetchBybitCandles(symbol, tf) {
   const intervalMap = { '1m':'1','5m':'5','15m':'15','1H':'60','4H':'240','1D':'D' };
   const interval = intervalMap[tf] || '15';
   const PER_CALL = 200;
-  const MAX_CALLS = 20;
+  const MAX_CALLS = 10;
   const sym = symbol.endsWith('USDT') ? symbol : symbol + 'USDT';
 
   try {
